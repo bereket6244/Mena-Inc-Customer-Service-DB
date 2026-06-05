@@ -1,0 +1,49 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Base Body Styles */
+body {
+  font-family: var(--font-sans);
+  background-color: #0A0A0A;
+  color: #E2E8F0;
+  line-height: 1.15;
+}
+
+/* Custom Scrollbars for Sharp Design */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0A0A0A;
+}
+::-webkit-scrollbar-thumb {
+  background: #262626;
+  border-radius: 0px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #ee317b;
+}
+
+/* Sharp focus outlines and helper utilities */
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: #ee317b !important;
+  box-shadow: 0 0 0 1px #ee317b;
+}
+
+/* Scrollbar Hider Utility for Mobile Horizontal Scrolling items */
+.scrollbar-none-x::-webkit-scrollbar {
+  display: none !important;
+  height: 0 !important;
+  width: 0 !important;
+}
+.scrollbar-none-x {
+  -ms-overflow-style: none !important;  /* IE and Edge */
+  scrollbar-width: none !important;  /* Firefox */
+}

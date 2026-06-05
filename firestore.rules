@@ -1,0 +1,95 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions for validation
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation for PaperStock schema
+    function isValidPaperStock(data) {
+      return data.keys().hasAll(['id', 'name', 'initialStock'])
+        && data.keys().size() == 3
+        && data.id is string
+        && data.id.size() <= 64
+        && data.name is string
+        && data.name.size() <= 128
+        && data.initialStock is number;
+    }
+
+    // Validation for Customer schema
+    function isValidCustomer(data) {
+      return data.keys().hasAll([
+        'id', 'clientType', 'clientName', 'phone', 'acquisitionSource',
+        'orderTakenBy', 'productType', 'quantity', 'unitPrice', 'advancePayment',
+        'paperType1', 'amount1', 'paperType2', 'amount2', 'paperType3', 'amount3',
+        'entrancePaper', 'amount16', 'ajabiPaper', 'amount9', 'deliveryDate'
+      ])
+        && data.keys().size() == 21
+        && data.id is string
+        && data.id.size() <= 64
+        && data.clientType is string
+        && (data.clientType == 'Individual' || data.clientType == 'Organization')
+        && data.clientName is string
+        && data.clientName.size() <= 200
+        && data.phone is string
+        && data.phone.size() <= 32
+        && data.acquisitionSource is string
+        && (data.acquisitionSource == 'TikTok' || data.acquisitionSource == 'Instagram' || data.acquisitionSource == 'Telegram' || data.acquisitionSource == 'Word of Mouth' || data.acquisitionSource == 'Repeat')
+        && data.orderTakenBy is string
+        && (data.orderTakenBy == 'Bereket' || data.orderTakenBy == 'Yeabsra' || data.orderTakenBy == 'Yordanos')
+        && data.productType is string
+        && data.productType.size() <= 128
+        && data.quantity is number
+        && data.unitPrice is number
+        && data.advancePayment is number
+        && data.paperType1 is string
+        && data.paperType1.size() <= 128
+        && data.amount1 is number
+        && data.paperType2 is string
+        && data.paperType2.size() <= 128
+        && data.amount2 is number
+        && data.paperType3 is string
+        && data.paperType3.size() <= 128
+        && data.amount3 is number
+        && data.entrancePaper is string
+        && data.entrancePaper.size() <= 128
+        && data.amount16 is number
+        && data.ajabiPaper is string
+        && data.ajabiPaper.size() <= 128
+        && data.amount9 is number
+        && data.deliveryDate is string
+        && data.deliveryDate.size() <= 16;
+    }
+
+    // Rules for Paper Stocks COLLECTION
+    match /paperStocks/{stockId} {
+      allow read: if true;
+      allow create: if isValidPaperStock(incoming());
+      allow update: if isValidPaperStock(incoming());
+      allow delete: if true;
+    }
+
+    // Rules for Customers COLLECTION
+    match /customers/{customerId} {
+      allow read: if true;
+      allow create: if isValidCustomer(incoming());
+      allow update: if isValidCustomer(incoming());
+      allow delete: if true;
+    }
+  }
+}

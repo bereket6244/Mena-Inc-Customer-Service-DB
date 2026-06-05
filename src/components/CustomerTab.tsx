@@ -1,0 +1,1700 @@
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { 
+  Plus, 
+  Search, 
+  Edit3, 
+  Trash2, 
+  LayoutGrid, 
+  Table as TableIcon, 
+  ChevronRight, 
+  X, 
+  AlertCircle, 
+  Phone, 
+  User, 
+  Layers, 
+  Sparkles,
+  Lock,
+  Copy
+} from 'lucide-react';
+import { 
+  Customer, 
+  PaperStock, 
+  CLIENT_TYPES, 
+  ACQUISITION_SOURCES, 
+  AGENTS, 
+  PRODUCT_TYPES,
+  EmployeeUser,
+  BankAccount
+} from '../types';
+import { parseFractionOrExpression, cleanLeadingZeros } from '../utils';
+
+interface CustomerTabProps {
+  customers: Customer[];
+  paperStocks: PaperStock[];
+  bankAccounts: BankAccount[];
+  onAddCustomer: (customer: Customer) => void;
+  onUpdateCustomer: (customer: Customer) => void;
+  onDeleteCustomer: (id: string) => void;
+  currentUser: EmployeeUser | null;
+  employees: EmployeeUser[];
+}
+
+export default function CustomerTab({ 
+  customers, 
+  paperStocks, 
+  bankAccounts,
+  onAddCustomer, 
+  onUpdateCustomer, 
+  onDeleteCustomer,
+  currentUser,
+  employees
+}: CustomerTabProps) {
+  
+  // View states
+  const [layoutMode, setLayoutMode] = useState<'grid' | 'cards'>('grid');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterAgent, setFilterAgent] = useState<string>('All');
+  const [filterSource, setFilterSource] = useState<string>('All');
+  const [filterPayment, setFilterPayment] = useState<string>('All'); // 'All', 'Debt', 'Paid'
+
+  const isAdmin = currentUser?.role === 'admin';
+
+  // Modal / Form state
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [formStep, setFormStep] = useState<1 | 2 | 3>(1);
+
+  // Form Fields State
+  const [clientType, setClientType] = useState<Customer['clientType']>('Individual');
+  const [clientName, setClientName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [acquisitionSource, setAcquisitionSource] = useState<Customer['acquisitionSource']>('Repeat');
+  const [orderTakenBy, setOrderTakenBy] = useState<Customer['orderTakenBy']>('Bereket');
+  const [productType, setProductType] = useState(PRODUCT_TYPES[0]);
+  const [quantity, setQuantity] = useState<number>(100);
+  const [unitPrice, setUnitPrice] = useState<number>(85);
+  const [advancePayment, setAdvancePayment] = useState<number>(5000);
+  const [paymentMethodId, setPaymentMethodId] = useState<string>('b1');
+
+  // Math expression string inputs for the numerical editing fields
+  const [qtyInput, setQtyInput] = useState<string>('100');
+  const [priceInput, setPriceInput] = useState<string>('85');
+  const [advanceInput, setAdvanceInput] = useState<string>('5000');
+
+  // Dynamic Acquisition Channels State
+  const [acquisitionChannels, setAcquisitionChannels] = useState<string[]>(() => {
+    const saved = localStorage.getItem('mena_inc_acquisition_channels_v3');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (_) {}
+    }
+    return ['TikTok', 'Instagram', 'Telegram', 'Word of Mouth', 'Repeat'];
+  });
+  const [newChannelInput, setNewChannelInput] = useState('');
+  const [isAddingChannel, setIsAddingChannel] = useState(false);
+
+  // Google Sheets alignment states
+  const [advancePaymentDate, setAdvancePaymentDate] = useState<string>('');
+  const [bankRemainingId, setBankRemainingId] = useState<string>('');
+  const [incompletionReason, setIncompletionReason] = useState<string>('');
+  const [isVatAdded, setIsVatAdded] = useState<boolean>(false);
+  const [baseUnitPriceInput, setBaseUnitPriceInput] = useState<string>('85');
+
+  // Non-blocking custom delete tracking ID
+  const [deletingCustomerId, setDeletingCustomerId] = useState<string | null>(null);
+  
+  const [paperType1, setPaperType1] = useState(paperStocks[0]?.name || 'Big flower');
+  const [amount1, setAmount1] = useState<string>('0');
+  const [paperType2, setPaperType2] = useState('None');
+  const [amount2, setAmount2] = useState<string>('0');
+  const [paperType3, setPaperType3] = useState('None');
+  const [amount3, setAmount3] = useState<string>('0');
+  
+  const [entrancePaper, setEntrancePaper] = useState('None');
+  const [amount16, setAmount16] = useState<string>('0');
+  const [ajabiPaper, setAjabiPaper] = useState('None');
+  const [amount9, setAmount9] = useState<string>('0');
+  
+  const [deliveryDate, setDeliveryDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 10);
+    return d.toISOString().split('T')[0];
+  });
+
+  const [formError, setFormError] = useState('');
+
+  // Open form for Create
+  const handleOpenCreate = () => {
+    setEditingCustomer(null);
+    setFormStep(1);
+    setClientType('Individual');
+    setClientName('');
+    setPhone('');
+    setAcquisitionSource('Repeat');
+    setOrderTakenBy('Bereket');
+    setProductType(PRODUCT_TYPES[0]);
+    setQuantity(100);
+    setUnitPrice(85);
+    setAdvancePayment(5000);
+    setQtyInput('100');
+    setPriceInput('85');
+    setAdvanceInput('5000');
+    setPaymentMethodId('b1');
+    setPaperType1(paperStocks[0]?.name || 'Big flower');
+    setAmount1('0');
+    setPaperType2('None');
+    setAmount2('0');
+    setPaperType3('None');
+    setAmount3('0');
+    setEntrancePaper('None');
+    setAmount16('0');
+    setAjabiPaper('None');
+    setAmount9('0');
+    
+    const d = new Date();
+    d.setDate(d.getDate() + 10);
+    setDeliveryDate(d.toISOString().split('T')[0]);
+
+    // Google Sheets custom alignment fields
+    const todayStr = new Date().toISOString().split('T')[0];
+    setAdvancePaymentDate(todayStr);
+    setBankRemainingId('');
+    setIncompletionReason('');
+    setIsVatAdded(false);
+    setBaseUnitPriceInput('85');
+    
+    setFormError('');
+    setIsFormOpen(true);
+  };
+
+  // Open form for Edit
+  const handleOpenEdit = (customer: Customer) => {
+    setEditingCustomer(customer);
+    setFormStep(1);
+    setClientType(customer.clientType);
+    setClientName(customer.clientName);
+    setPhone(customer.phone);
+    setAcquisitionSource(customer.acquisitionSource);
+    setOrderTakenBy(customer.orderTakenBy);
+    setProductType(customer.productType);
+    setQuantity(customer.quantity);
+    setUnitPrice(customer.unitPrice);
+    setAdvancePayment(customer.advancePayment);
+    setQtyInput(customer.quantity.toString());
+    setPriceInput(customer.unitPrice.toString());
+    setAdvanceInput(customer.advancePayment.toString());
+    setPaymentMethodId(customer.paymentMethodId || 'b1');
+    
+    setPaperType1(customer.paperType1);
+    setAmount1(customer.amount1.toString());
+    setPaperType2(customer.paperType2);
+    setAmount2(customer.amount2.toString());
+    setPaperType3(customer.paperType3);
+    setAmount3(customer.amount3.toString());
+    
+    setEntrancePaper(customer.entrancePaper);
+    setAmount16(customer.amount16.toString());
+    setAjabiPaper(customer.ajabiPaper);
+    setAmount9(customer.amount9.toString());
+    setDeliveryDate(customer.deliveryDate);
+
+    // Google Sheets custom alignment fields loading
+    setAdvancePaymentDate(customer.advancePaymentDate || customer.deliveryDate);
+    setBankRemainingId(customer.bankRemainingId || '');
+    setIncompletionReason(customer.incompletionReason || '');
+    setIsVatAdded(customer.isVatAdded || false);
+    setBaseUnitPriceInput((customer.baseUnitPrice !== undefined ? customer.baseUnitPrice : customer.unitPrice).toString());
+    
+    setFormError('');
+    setIsFormOpen(true);
+  };
+
+  // Duplicate helper (some customers have more than one order)
+  const handleOpenDuplicate = (customer: Customer) => {
+    setEditingCustomer(null);
+    setFormStep(1);
+    setClientType(customer.clientType);
+    setClientName(customer.clientName);
+    setPhone(customer.phone);
+    setAcquisitionSource(customer.acquisitionSource);
+    setOrderTakenBy(customer.orderTakenBy);
+    setProductType(customer.productType);
+    setQuantity(customer.quantity);
+    setUnitPrice(customer.unitPrice);
+    setAdvancePayment(customer.advancePayment);
+    setQtyInput(customer.quantity.toString());
+    setPriceInput(customer.unitPrice.toString());
+    setAdvanceInput(customer.advancePayment.toString());
+    setPaymentMethodId(customer.paymentMethodId || 'b1');
+    
+    setPaperType1(customer.paperType1);
+    setAmount1(customer.amount1.toString());
+    setPaperType2(customer.paperType2);
+    setAmount2(customer.amount2.toString());
+    setPaperType3(customer.paperType3);
+    setAmount3(customer.amount3.toString());
+    
+    setEntrancePaper(customer.entrancePaper);
+    setAmount16(customer.amount16.toString());
+    setAjabiPaper(customer.ajabiPaper);
+    setAmount9(customer.amount9.toString());
+    setDeliveryDate(customer.deliveryDate);
+
+    setAdvancePaymentDate(customer.advancePaymentDate || customer.deliveryDate);
+    setBankRemainingId(customer.bankRemainingId || 'b1');
+    setIncompletionReason(customer.incompletionReason || '');
+    setIsVatAdded(customer.isVatAdded || false);
+    setBaseUnitPriceInput((customer.baseUnitPrice !== undefined ? customer.baseUnitPrice : customer.unitPrice).toString());
+    
+    setFormError('');
+    setIsFormOpen(true);
+  };
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!clientName.trim()) {
+      setFormError('Client name is required.');
+      return;
+    }
+
+    const finalQuantity = Math.max(0, parseFractionOrExpression(qtyInput));
+    const finalUnitPrice = Math.max(0, parseFractionOrExpression(priceInput));
+    const finalAdvancePayment = Math.max(0, parseFractionOrExpression(advanceInput));
+
+    const payload: Customer = {
+      id: editingCustomer ? editingCustomer.id : 'c_' + Date.now(),
+      clientType,
+      clientName: clientName.trim(),
+      phone: phone.trim(),
+      acquisitionSource,
+      orderTakenBy,
+      productType,
+      // Force Absolute safe Positive Numbers only
+      quantity: finalQuantity,
+      unitPrice: finalUnitPrice,
+      advancePayment: finalAdvancePayment,
+      paymentMethodId,
+      paperType1,
+      amount1: Math.max(0, parseFractionOrExpression(amount1)),
+      paperType2,
+      amount2: Math.max(0, parseFractionOrExpression(amount2)),
+      paperType3,
+      amount3: Math.max(0, parseFractionOrExpression(amount3)),
+      entrancePaper,
+      amount16: Math.max(0, parseFractionOrExpression(amount16)),
+      ajabiPaper,
+      amount9: Math.max(0, parseFractionOrExpression(amount9)),
+      deliveryDate,
+      
+      // Custom Google Sheets fields
+      advancePaymentDate,
+      bankRemainingId,
+      incompletionReason: incompletionReason.trim(),
+      isVatAdded,
+      baseUnitPrice: isVatAdded ? Math.max(0, parseFractionOrExpression(baseUnitPriceInput)) : undefined
+    };
+
+    if (editingCustomer) {
+      onUpdateCustomer(payload);
+    } else {
+      onAddCustomer(payload);
+    }
+    setIsFormOpen(false);
+  };
+
+  const handleSaveAndAddAnother = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!clientName.trim()) {
+      setFormError('Client name is required.');
+      return;
+    }
+
+    const finalQuantity = Math.max(0, parseFractionOrExpression(qtyInput));
+    const finalUnitPrice = Math.max(0, parseFractionOrExpression(priceInput));
+    const finalAdvancePayment = Math.max(0, parseFractionOrExpression(advanceInput));
+
+    const payload: Customer = {
+      id: 'c_' + Date.now(),
+      clientType,
+      clientName: clientName.trim(),
+      phone: phone.trim(),
+      acquisitionSource,
+      orderTakenBy,
+      productType,
+      quantity: finalQuantity,
+      unitPrice: finalUnitPrice,
+      advancePayment: finalAdvancePayment,
+      paymentMethodId,
+      paperType1,
+      amount1: Math.max(0, parseFractionOrExpression(amount1)),
+      paperType2,
+      amount2: Math.max(0, parseFractionOrExpression(amount2)),
+      paperType3,
+      amount3: Math.max(0, parseFractionOrExpression(amount3)),
+      entrancePaper,
+      amount16: Math.max(0, parseFractionOrExpression(amount16)),
+      ajabiPaper,
+      amount9: Math.max(0, parseFractionOrExpression(amount9)),
+      deliveryDate,
+      
+      advancePaymentDate,
+      bankRemainingId,
+      incompletionReason: incompletionReason.trim(),
+      isVatAdded,
+      baseUnitPrice: isVatAdded ? Math.max(0, parseFractionOrExpression(baseUnitPriceInput)) : undefined
+    };
+
+    onAddCustomer(payload);
+
+    // Keep the core customer details that persist (name, phone, clientType, channel, agent, dates)
+    // but reset the product-specific and sheet-deduction configurations for the next item order
+    setProductType('Pocket Card');
+    setQuantity(0);
+    setUnitPrice(85);
+    setAdvancePayment(0);
+    setQtyInput('0');
+    setPriceInput('85');
+    setAdvanceInput('0');
+    
+    // Reset standard layout deductions
+    setPaperType1(paperStocks[0]?.name || 'Big flower');
+    setAmount1('0');
+    setPaperType2('None');
+    setAmount2('0');
+    setPaperType3('None');
+    setAmount3('0');
+    
+    // Reset auxiliary layouts
+    setEntrancePaper('None');
+    setAmount16('0');
+    setAjabiPaper('None');
+    setAmount9('0');
+    
+    setIncompletionReason('');
+    setIsVatAdded(false);
+    setBaseUnitPriceInput('85');
+
+    // Return the form immediately to page/step 1 so they can log the next item safely
+    setFormStep(1);
+    setFormError('');
+  };
+
+  const computedFullPayment = quantity * unitPrice;
+  const computedRemainingBalance = computedFullPayment - advancePayment;
+
+  // Filter application
+  const filteredCustomers = customers.filter(c => {
+    const matchesSearch = 
+      c.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.phone.includes(searchQuery) ||
+      c.productType.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesAgent = filterAgent === 'All' || c.orderTakenBy === filterAgent;
+    const matchesSource = filterSource === 'All' || c.acquisitionSource === filterSource;
+
+    const full = c.quantity * c.unitPrice;
+    const remaining = full - c.advancePayment;
+    let matchesPayment = true;
+    if (filterPayment === 'Debt') {
+      matchesPayment = remaining > 0;
+    } else if (filterPayment === 'Paid') {
+      matchesPayment = remaining <= 0;
+    }
+
+    return matchesSearch && matchesAgent && matchesSource && matchesPayment;
+  });
+
+  return (
+    <div className="space-y-6" id="customers-tab-pnl">
+      
+      {/* Search and Filters Strip - Optimized for Mobile Screen limits */}
+      <div className="bg-[#121212] border border-[#262626] rounded-none p-4 shadow-none flex flex-col xl:flex-row xl:items-center justify-between gap-4 select-none">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 flex-1">
+          {/* Search bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-500" />
+            <input
+              type="text"
+              placeholder="Search clients by name, phone or product..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-1.5 text-sm bg-[#181818] text-white hover:bg-[#1E1E1E] focus:bg-[#1E1E1E] border border-[#262626] rounded-none outline-none focus:border-[#ee317b] transition-all font-sans"
+            />
+          </div>
+
+          {/* Responsive columns grid so filters stack neatly on small screens */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono w-full md:w-auto">
+            {/* Filter Agent */}
+            <select
+              value={filterAgent}
+              onChange={(e) => setFilterAgent(e.target.value)}
+              className="px-3 py-1.5 bg-[#181818] border border-[#262626] text-gray-300 rounded-none text-xs outline-none cursor-pointer focus:border-[#ee317b]"
+            >
+              <option value="All">All Staff</option>
+              {(employees.length > 0 ? employees.map(emp => emp.name) : AGENTS).map(agent => (
+                <option key={agent} value={agent}>{agent}</option>
+              ))}
+            </select>
+
+            {/* Filter Lead Channel */}
+            <select
+              value={filterSource}
+              onChange={(e) => setFilterSource(e.target.value)}
+              className="px-3 py-1.5 bg-[#181818] border border-[#262626] text-gray-300 rounded-none text-xs outline-none cursor-pointer focus:border-[#ee317b]"
+            >
+              <option value="All">All Leads</option>
+              {ACQUISITION_SOURCES.map(source => <option key={source} value={source}>{source}</option>)}
+            </select>
+
+            {/* Filter Debt Status */}
+            <select
+              value={filterPayment}
+              onChange={(e) => setFilterPayment(e.target.value)}
+              className="px-3 py-1.5 bg-[#181818] border border-[#262626] text-gray-300 rounded-none text-xs outline-none cursor-pointer focus:border-[#ee317b]"
+            >
+              <option value="All">Any Payment</option>
+              <option value="Debt">Outstanding Debt</option>
+              <option value="Paid">Paid in Full</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Layout Switcher & Action */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:justify-end select-none">
+          {/* Grid vs Cards Switcher */}
+          <div className="border border-[#262626] rounded-none p-0.5 flex bg-[#181818] justify-center">
+            <button
+              type="button"
+              onClick={() => setLayoutMode('grid')}
+              className={`p-1.5 rounded-none cursor-pointer transition-colors ${layoutMode === 'grid' ? 'bg-[#ee317b] text-black font-semibold' : 'text-gray-400 hover:text-white'}`}
+              title="Wide excel Spreadsheet View (Default)"
+            >
+              <TableIcon className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setLayoutMode('cards')}
+              className={`p-1.5 rounded-none cursor-pointer transition-colors ${layoutMode === 'cards' ? 'bg-[#ee317b] text-black font-semibold' : 'text-gray-400 hover:text-white'}`}
+              title="Responsive Cards View"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleOpenCreate}
+            className="text-xs font-mono font-bold text-white bg-[#ee317b] hover:bg-[#d61e63] rounded-none px-4 py-2 flex items-center justify-center gap-1.5 shadow-none transition-colors cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            Create Customer Order
+          </button>
+        </div>
+      </div>
+
+      {/* RENDER MODE: EXCEL SPREADSHEET HORIZONTAL GRID (DEFAULT) */}
+      {layoutMode === 'grid' ? (
+        <div className="bg-[#121212] border border-[#262626] rounded-none overflow-hidden shadow-none">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse font-sans text-xs">
+              <thead>
+                <tr className="bg-[#181818] border-b border-[#262626] text-gray-400 font-mono tracking-wider uppercase text-center">
+                  <th className="py-2.5 px-3 border-r border-[#262626] bg-[#1C1C1C] sticky left-0 z-20 font-bold text-[#ee317b] font-mono text-center w-8 text-xs">Index</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-left">Client Type</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-left">Client Name</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-left">Phone / Contact</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-left">Acquisition Channel</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-left">Order Taken By</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-left">Product Type</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-right">Quantity</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-right">Unit Price (ETB)</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-right text-[#71b536]">Advance (ETB)</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-center bg-[#1c1c1c]/20">Advance Date</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-left">Deposit Account (Advance)</th>
+                  
+                  {/* Ledger formulas Paper Stocks */}
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] bg-[#31111E]/20 text-left">Paper 1</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-right bg-[#31111E]/20">Amount 1</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] bg-[#31111E]/20 text-left">Paper 2</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-right bg-[#31111E]/20">Amount 2</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] bg-[#31111E]/20 text-left">Paper 3</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-right bg-[#31111E]/20">Amount 3</th>
+                  
+                  {/* Auxiliary Papers */}
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] bg-[#112233]/40 text-left">Entrance Paper</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-right bg-[#112233]/40">Amt /16</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] bg-[#112233]/40 text-left">Ajabi Paper</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-right bg-[#112233]/40">Amt /9</th>
+                  
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-right">Remaining (V)</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-center bg-[#31111E]/5">Final Payment Date</th>
+                  <th className="py-2.5 px-3 font-semibold text-[#ee317b] border-r border-[#262626] text-right bg-[#31111E]/10">Full (ETB)</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-left">Remaining Bank</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-stone-400 text-left">Incompletion Reason</th>
+                  
+                  <th className="py-2.5 px-3 text-center text-gray-400 font-mono w-24">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#262626] text-gray-300">
+                {filteredCustomers.map((c, index) => {
+                  const fullVal = c.quantity * c.unitPrice;
+                  const remainingVal = fullVal - c.advancePayment;
+                  
+                  return (
+                    <tr key={c.id} className="hover:bg-[#1a1a1a] transition-colors">
+                      {/* Grid Row Index */}
+                      <td className="py-2 px-1 text-center font-mono text-gray-500 border-r border-[#262626] bg-[#181818] sticky left-0 z-10">{index + 2}</td>
+                      
+                      {/* Client Type */}
+                      <td className="py-2 px-3 border-r border-[#262626] font-mono">
+                        <span className={`inline-flex px-2 py-0.5 rounded-none text-[10px] font-semibold border ${c.clientType === 'Organization' ? 'bg-[#2E181D] text-[#F87171] border-[#5D2D35]' : 'bg-[#181818] text-gray-300 border-[#262626]'}`}>
+                          {c.clientType.toUpperCase()}
+                        </span>
+                      </td>
+                      
+                      {/* Client Name */}
+                      <td className="py-2 px-3 border-r border-[#262626] font-semibold text-white whitespace-nowrap">{c.clientName}</td>
+                      
+                      {/* Phone / Contact */}
+                      <td className="py-2 px-3 border-r border-[#262626] font-mono text-gray-400 whitespace-nowrap">{c.phone || '-'}</td>
+                      
+                      {/* Acquisition Channel */}
+                      <td className="py-2 px-3 border-r border-[#262626] text-gray-300 font-mono">
+                        <span className="text-[11px] bg-[#181818] border border-[#2DA2D2D]/10 px-1.5 py-0.5 rounded-none">{c.acquisitionSource}</span>
+                      </td>
+                      
+                      {/* Order Taken By */}
+                      <td className="py-2 px-3 border-r border-[#262626] font-medium text-gray-300">{c.orderTakenBy}</td>
+                      
+                      {/* Product Type */}
+                      <td className="py-2 px-3 border-r border-[#262626] text-gray-300 whitespace-nowrap font-sans">{c.productType}</td>
+                      
+                      {/* Quantity */}
+                      <td className="py-2 px-3 border-r border-[#262626] text-right font-mono text-white">{c.quantity.toLocaleString()}</td>
+                      
+                      {/* Unit Price (ETB) */}
+                      <td className="py-2 px-3 border-r border-[#262626] text-right font-mono text-gray-300">
+                        <div>{c.unitPrice.toLocaleString()}</div>
+                        {c.isVatAdded && (
+                          <div className="text-[8px] text-[#ee317b] uppercase font-bold tracking-tight">15% VAT Inc.</div>
+                        )}
+                      </td>
+                      
+                      {/* Advance (ETB) */}
+                      <td className="py-2 px-3 border-r border-[#262626] text-right font-mono text-[#71b536] bg-[#112918]/10">{c.advancePayment.toLocaleString()}</td>
+                      
+                      {/* Inline Date Picker for Advance Payment Date */}
+                      <td className="py-1.5 px-2 border-r border-[#262626] font-mono text-center bg-[#1c1c1c]/10">
+                        <input
+                          type="date"
+                          value={c.advancePaymentDate || ''}
+                          onChange={(e) => {
+                            onUpdateCustomer({
+                              ...c,
+                              advancePaymentDate: e.target.value
+                            });
+                          }}
+                          className="bg-[#121212] text-[11px] text-sky-400 hover:text-sky-300 border border-[#262626] hover:border-sky-400 focus:border-sky-400 outline-none px-1.5 py-0.5 font-mono cursor-pointer rounded-none"
+                          title="Change Advance Payment Date directly"
+                        />
+                      </td>
+
+                      {/* Deposit Account (Advance) */}
+                      <td className="py-2 px-3 border-r border-[#262626] font-mono text-xs text-stone-450 bg-stone-900/10 whitespace-nowrap">
+                        {bankAccounts.find(b => b.id === (c.paymentMethodId || 'b1'))?.name || 'Commercial Bank of Ethiopia'}
+                      </td>
+                      
+                      {/* Paper 1 */}
+                      <td className="py-2 px-3 border-r border-[#262626] bg-[#31111E]/10 text-gray-300 font-sans">{c.paperType1}</td>
+                      {/* Amount 1 */}
+                      <td className="py-2 px-3 border-r border-[#262626] text-right font-mono bg-[#31111E]/10">{c.amount1 || '-'}</td>
+                      
+                      {/* Paper 2 */}
+                      <td className="py-2 px-3 border-r border-[#262626] bg-[#31111E]/10 text-gray-300 font-sans">{c.paperType2}</td>
+                      {/* Amount 2 */}
+                      <td className="py-2 px-3 border-r border-[#262626] text-right font-mono bg-[#31111E]/10">{c.amount2 || '-'}</td>
+                      
+                      {/* Paper 3 */}
+                      <td className="py-2 px-3 border-r border-[#262626] bg-[#31111E]/10 text-gray-300 font-sans">{c.paperType3}</td>
+                      {/* Amount 3 */}
+                      <td className="py-2 px-3 border-r border-[#262626] text-right font-mono bg-[#31111E]/10">{c.amount3 || '-'}</td>
+                      
+                      {/* Entrance Paper */}
+                      <td className="py-2 px-3 border-r border-[#262626] bg-[#112233]/20 text-gray-400 font-sans">{c.entrancePaper}</td>
+                      {/* Amt /16 */}
+                      <td className="py-2 px-3 border-r border-[#262626] text-right font-mono bg-[#112233]/20">{c.amount16 || '-'}</td>
+                      
+                      {/* Ajabi Paper */}
+                      <td className="py-2 px-3 border-r border-[#262626] bg-[#112233]/20 text-gray-400 font-sans">{c.ajabiPaper}</td>
+                      {/* Amt /9 */}
+                      <td className="py-2 px-3 border-r border-[#262626] text-right font-mono bg-[#112233]/20">{c.amount9 || '-'}</td>
+                      
+                      {/* Remaining (V) */}
+                      <td className={`py-2 px-3 border-r border-[#262626] text-right font-mono font-bold ${remainingVal > 0 ? 'text-[#F87171] bg-[#2E181D]/30' : 'text-[#71b536] bg-[#112918]/30'}`}>
+                        {remainingVal === 0 ? 'PAID' : remainingVal.toLocaleString()}
+                      </td>
+                      
+                      {/* Final Payment Date */}
+                      <td className="py-2.5 px-3 border-r border-[#262626] font-mono text-center whitespace-nowrap bg-[#1c1c1c]/30">
+                        <input
+                          type="date"
+                          value={c.deliveryDate || ''}
+                          onChange={(e) => {
+                            onUpdateCustomer({
+                              ...c,
+                              deliveryDate: e.target.value
+                            });
+                          }}
+                          className="bg-[#121212] text-xs text-[#ee317b] hover:text-[#ff4e91] border border-[#262626] hover:border-[#ee317b] focus:border-[#ee317b] outline-none px-2 py-1 font-mono cursor-pointer rounded-none"
+                          title="Change Final Payment Date directly"
+                        />
+                      </td>
+                      
+                      {/* Full (ETB) */}
+                      <td className="py-2 px-3 border-r border-[#262626] text-right font-mono font-bold text-white bg-[#31111E]/10">{fullVal.toLocaleString()}</td>
+ 
+                      {/* Inline Dropdown for Remaining Bank account (Col Y) */}
+                      <td className="py-1.5 px-2 border-r border-[#262626] font-mono text-center bg-[#1c1c1c]/10">
+                        <select
+                          value={c.bankRemainingId || ''}
+                          onChange={(e) => {
+                            onUpdateCustomer({
+                              ...c,
+                              bankRemainingId: e.target.value || undefined
+                            });
+                          }}
+                          className="bg-[#121212] text-xs text-gray-300 hover:text-white border border-[#262626] hover:border-[#ee317b] focus:border-[#ee317b] outline-none px-2 py-1 font-mono cursor-pointer rounded-none w-full min-w-[130px] max-w-[180px]"
+                        >
+                          <option value="">- Empty/Unpaid -</option>
+                          {bankAccounts.map(b => (
+                            <option key={b.id} value={b.id}>
+                              {b.name.replace(/\s*\(.*\)/, '').replace('Commercial Bank of Ethiopia', 'CBE')} {b.accountNumber ? `(${b.accountNumber.slice(-4)})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+ 
+                      {/* Inline Input for Incompletion Reason (Col Z) */}
+                      <td className="py-1 px-2 border-r border-[#262626] min-w-[220px]">
+                        <input
+                          type="text"
+                          value={c.incompletionReason || ''}
+                          placeholder="Completed / enter reason..."
+                          onChange={(e) => {
+                            onUpdateCustomer({
+                              ...c,
+                              incompletionReason: e.target.value
+                            });
+                          }}
+                          className="bg-[#121212] text-xs text-gray-350 hover:text-white border border-[#262626] hover:border-[#ee317b] focus:border-[#ee317b] outline-none px-2 py-1 font-sans rounded-none w-full"
+                          title="Change Incompletion Reason directly"
+                        />
+                      </td>
+                      
+                      {/* Actions */}
+                      <td className="py-1 px-2 text-center whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-1 font-mono">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDuplicate(c)}
+                            className="text-gray-400 hover:text-sky-400 hover:bg-[#262626] p-1.5 rounded-none transition-colors cursor-pointer"
+                            title="Add Another Order for Client (Duplicate details)"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(c)}
+                            className="text-gray-400 hover:text-[#ee317b] hover:bg-[#262626] p-1.5 rounded-none transition-colors cursor-pointer"
+                            title="Edit Record"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          {isAdmin ? (
+                            <button
+                              type="button"
+                              onClick={() => setDeletingCustomerId(c.id)}
+                              className="text-gray-500 hover:text-[#F87171] hover:bg-[#262626] p-1.5 rounded-none transition-colors cursor-pointer"
+                              title="Delete Record"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <Lock className="w-3.5 h-3.5 text-gray-700" title="Deletes require administrator privileges" />
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filteredCustomers.length === 0 && (
+                  <tr>
+                    <td colSpan={24} className="text-center py-10 font-mono text-sm text-gray-500">
+                      No customer ledger logs matching this criteria.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        /* RESPONSIVE CARDS VIEW */
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 select-none animate-none">
+          {filteredCustomers.map((c) => {
+            const fullVal = c.quantity * c.unitPrice;
+            const remainingVal = fullVal - c.advancePayment;
+            
+            return (
+              <div 
+                key={c.id} 
+                className="bg-[#121212] border border-[#262626] rounded-none p-5 shadow-none flex flex-col justify-between hover:border-[#ee317b] transition-all duration-300 text-gray-300"
+              >
+                <div className="space-y-4">
+                  
+                  {/* Top Header Card */}
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-none border ${
+                          c.clientType === 'Organization' ? 'bg-[#2E181D] text-[#F87171] border-[#5D2D35]' : 'bg-[#181818] text-gray-300 border-[#262626]'
+                        }`}>
+                          {c.clientType}
+                        </span>
+                        
+                        <span className="text-[10px] bg-[#181818] text-gray-400 px-1.5 py-0.5 font-mono border border-[#262626] rounded-none">
+                          AGENT: {c.orderTakenBy.toUpperCase()}
+                        </span>
+                      </div>
+                      <h3 className="font-mono font-bold text-white mt-2.5 text-base">{c.clientName}</h3>
+                    </div>
+                    
+                    <span className="text-xs text-gray-500 font-mono">
+                      #{c.id.substring(c.id.length - 4)}
+                    </span>
+                  </div>
+
+                  {/* Detail Info */}
+                  <div className="text-xs text-gray-300 space-y-1.5 font-mono">
+                    <div className="flex items-center gap-2">
+                       <Phone className="w-3.5 h-3.5 text-[#ee317b]" />
+                       <span>{c.phone || 'No phone record'}</span>
+                    </div>
+                    <div className="flex items-center gap-2 font-mono text-xs">
+                       <span className="text-[#ee317b] font-bold text-xs">📅</span>
+                       <span className="text-gray-400 flex items-center gap-1.5">
+                         Final Payment Date:
+                         <input
+                           type="date"
+                           value={c.deliveryDate || ''}
+                           onChange={(e) => {
+                             onUpdateCustomer({
+                               ...c,
+                               deliveryDate: e.target.value
+                             });
+                           }}
+                           className="bg-[#161616] text-[#ee317b] hover:text-[#ff4e91] border border-[#262626] hover:border-[#ee317b] focus:border-[#ee317b] font-mono px-1.5 py-0.5 rounded-none outline-none cursor-pointer"
+                         />
+                       </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                       <Layers className="w-3.5 h-3.5 text-[#ee317b]" />
+                       <span>Product: <strong className="text-white font-sans">{c.productType} ({c.quantity} pcs)</strong></span>
+                    </div>
+                  </div>
+
+                  {/* Deductions breakdown */}
+                  <div className="bg-[#181818] border border-[#262626] rounded-none p-3 text-xs space-y-2">
+                    <span className="font-mono text-[10px] text-gray-500 uppercase tracking-wider block font-bold">STOCK ROOM DEDUCTIONS</span>
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 font-mono">
+                      {c.paperType1 !== 'None' && (() => {
+                        const raw = Number((c.amount1 * c.quantity).toFixed(2));
+                        const ceiled = Math.ceil(c.amount1 * c.quantity);
+                        return (
+                          <div>
+                            <span className="text-gray-500 block text-[10px]">PAPER 1 (x Qty):</span>
+                            <span className="font-medium text-stone-200" title="Sheets per card multiplied by card quantity, rounded up to next integer">
+                              {c.paperType1} ({raw === ceiled ? `${raw}` : `${raw} ➔ ${ceiled}`} sheets)
+                            </span>
+                          </div>
+                        );
+                      })()}
+
+                      {c.paperType2 !== 'None' && (() => {
+                        const raw = Number((c.amount2 * c.quantity).toFixed(2));
+                        const ceiled = Math.ceil(c.amount2 * c.quantity);
+                        return (
+                          <div>
+                            <span className="text-gray-500 block text-[10px]">PAPER 2 (x Qty):</span>
+                            <span className="font-medium text-stone-200" title="Sheets per card multiplied by card quantity, rounded up to next integer">
+                              {c.paperType2} ({raw === ceiled ? `${raw}` : `${raw} ➔ ${ceiled}`} sheets)
+                            </span>
+                          </div>
+                        );
+                      })()}
+
+                      {c.paperType3 !== 'None' && (() => {
+                        const raw = Number((c.amount3 * c.quantity).toFixed(2));
+                        const ceiled = Math.ceil(c.amount3 * c.quantity);
+                        return (
+                          <div>
+                            <span className="text-gray-500 block text-[10px]">PAPER 3 (x Qty):</span>
+                            <span className="font-medium text-stone-200" title="Sheets per card multiplied by card quantity, rounded up to next integer">
+                              {c.paperType3} ({raw === ceiled ? `${raw}` : `${raw} ➔ ${ceiled}`} sheets)
+                            </span>
+                          </div>
+                        );
+                      })()}
+
+                      {c.entrancePaper !== 'None' && (() => {
+                        const raw = Number((c.amount16 / 16).toFixed(2));
+                        const ceiled = Math.ceil(c.amount16 / 16);
+                        return (
+                          <div>
+                            <span className="text-gray-500 block text-[10px]">ENTRANCE (Pieces / 16):</span>
+                            <span className="font-medium text-stone-200" title="Entrance pieces divided by 16, rounded up">
+                              {c.entrancePaper} ({raw === ceiled ? `${raw}` : `${raw} ➔ ${ceiled}`} sheets)
+                            </span>
+                          </div>
+                        );
+                      })()}
+
+                      {c.ajabiPaper !== 'None' && (() => {
+                        const raw = Number((c.amount9 / 9).toFixed(2));
+                        const ceiled = Math.ceil(c.amount9 / 9);
+                        return (
+                          <div>
+                            <span className="text-gray-500 block text-[10px]">AJABI (Pieces / 9):</span>
+                            <span className="font-medium text-stone-200" title="Ajabi pieces divided by 9, rounded up">
+                              {c.ajabiPaper} ({raw === ceiled ? `${raw}` : `${raw} ➔ ${ceiled}`} sheets)
+                            </span>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Finance Calculations */}
+                  <div className="border-t border-[#262626] pt-3 grid grid-cols-3 gap-1 text-center font-mono text-xs">
+                    <div>
+                      <span className="text-gray-500 block text-[9px] uppercase">Full Value</span>
+                      <span className="font-bold text-white">{fullVal.toLocaleString()} ETB</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block text-[9px] uppercase">Received</span>
+                      <span className="font-bold text-[#71b536]">{c.advancePayment.toLocaleString()} ETB</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block text-[9px] uppercase">Debt Due</span>
+                      <span className={`font-bold ${remainingVal > 0 ? 'text-[#F87171]' : 'text-gray-400'}`}>
+                        {remainingVal === 0 ? 'None' : `${remainingVal.toLocaleString()} ETB`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Dynamic Treasury Deposit Indicators */}
+                  <div className="mt-3.5 pt-2.5 border-t border-[#262626]/60 flex flex-col gap-1.5 text-[10px] font-mono">
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-500 uppercase text-[8px] tracking-wider">Deposit A/C (Advance)</span>
+                      <span className="text-gray-300 font-medium truncate max-w-[180px]">
+                        {bankAccounts.find(ac => ac.id === (c.paymentMethodId || 'b1'))?.name || 'CBE'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-500 uppercase text-[8px] tracking-wider">A/C for Remaining Due</span>
+                      <span className="text-[#ee317b] font-medium truncate max-w-[180px]">
+                        {bankAccounts.find(ac => ac.id === (c.bankRemainingId || 'b1'))?.name || 'CBE'}
+                      </span>
+                    </div>
+                    {c.incompletionReason && (
+                      <div className="pt-2 border-t border-[#262626]/40 text-left">
+                        <span className="text-gray-500 uppercase text-[8px] tracking-wider block mb-0.5">Incompletion Reason / Notes:</span>
+                        <p className="text-stone-400 leading-normal text-xs">{c.incompletionReason}</p>
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+
+                {/* Card footer buttons */}
+                <div className="flex items-center justify-end gap-2 pt-4 mt-4 border-t border-[#262626]">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenDuplicate(c)}
+                    className="text-xs text-sky-400 hover:text-white font-mono font-medium hover:bg-[#262626] px-2.5 py-1.5 rounded-none transition-all flex items-center gap-1 cursor-pointer"
+                    title="Copy details to add another order for this client"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    +Order
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEdit(c)}
+                    className="text-xs text-[#ee317b] hover:text-white font-mono font-medium hover:bg-[#262626] px-2.5 py-1.5 rounded-none transition-all flex items-center gap-1 cursor-pointer"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    Modify
+                  </button>
+                  {isAdmin ? (
+                    <button
+                      type="button"
+                      onClick={() => setDeletingCustomerId(c.id)}
+                      className="text-xs text-gray-400 hover:text-[#F87171] font-mono hover:bg-[#262626] px-2.5 py-1.5 rounded-none transition-all cursor-pointer"
+                    >
+                      Remove
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-gray-600 font-mono flex items-center gap-1 bg-[#171717] px-2 py-1 border border-[#232323]">
+                      <Lock className="w-3 h-3 text-[#ee317b]" />
+                      Lock
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {filteredCustomers.length === 0 && (
+            <div className="col-span-full text-center py-12 bg-[#121212] border border-[#262626] rounded-none text-gray-400 text-sm font-mono">
+              No customer records matched your query terms.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* DYNAMIC BACKDROP DRAWER/MODAL WIZARD */}
+      <AnimatePresence>
+        {isFormOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-end bg-black/75 backdrop-blur-xs select-none">
+            <motion.div 
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="bg-[#121212] w-full max-w-xl h-full border-l border-[#262626] shadow-2xl overflow-y-auto flex flex-col justify-between"
+            >
+              
+              {/* Header */}
+              <div>
+                <div className="flex items-center justify-between px-6 py-4 border-b border-[#262626] bg-[#181818]">
+                  <div>
+                    <h3 className="font-mono font-bold text-white text-base flex items-center gap-1.5 uppercase">
+                      <Sparkles className="w-5 h-5 text-[#ee317b]" />
+                      {editingCustomer ? `Edit Order #${editingCustomer.id.slice(-4)}` : 'Create New Customer Order'}
+                    </h3>
+                    <p className="text-xs text-gray-400 mt-0.5 font-mono">Stock room computations subtraction automatically runs based on ledger rules.</p>
+                  </div>
+                  
+                  <button
+                    type="button"
+                    onClick={() => setIsFormOpen(false)}
+                    className="p-1 text-gray-400 hover:text-white hover:bg-[#262626] rounded-none cursor-pointer"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                {/* Wizard Tab buttons */}
+                <div className="grid grid-cols-3 border-b border-[#262626] text-center font-mono font-semibold text-[11px] select-none bg-[#181818]">
+                  <button
+                    type="button"
+                    onClick={() => setFormStep(1)}
+                    className={`py-3 border-b-2 cursor-pointer transition-colors rounded-none ${formStep === 1 ? 'border-[#ee317b] text-[#ee317b] bg-[#121212]' : 'border-transparent text-gray-400 hover:text-white'}`}
+                  >
+                    1. Account Info
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormStep(2)}
+                    className={`py-3 border-b-2 cursor-pointer transition-colors rounded-none ${formStep === 2 ? 'border-[#ee317b] text-[#ee317b] bg-[#121212]' : 'border-transparent text-gray-400 hover:text-white'}`}
+                  >
+                    2. Primary Papers
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormStep(3)}
+                    className={`py-3 border-b-2 cursor-pointer transition-colors rounded-none ${formStep === 3 ? 'border-[#ee317b] text-[#ee317b] bg-[#121212]' : 'border-transparent text-gray-400 hover:text-white'}`}
+                  >
+                    3. Aux &amp; Special
+                  </button>
+                </div>
+              </div>
+
+              {/* Error strip */}
+              {formError && (
+                <div className="mx-6 mt-4 bg-[#31111E] border border-[#ee317b]/30 p-3 rounded-none text-[#F87171] text-xs flex items-center gap-2 font-mono">
+                  <AlertCircle className="w-4 h-4 text-[#F87171] flex-shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
+              {/* Step Forms */}
+              <form onSubmit={handleFormSubmit} className="flex-1 px-6 py-5 overflow-y-auto space-y-6">
+                
+                {formStep === 1 && (
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-mono uppercase tracking-wider text-gray-500 font-bold border-b border-[#262626] pb-1.5">1. Client Billing &amp; Pricing Metadata</h4>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 font-mono uppercase tracking-wider mb-1" htmlFor="field-client-type">Client Type</label>
+                        <select
+                          id="field-client-type"
+                          value={clientType}
+                          onChange={(e) => setClientType(e.target.value as Customer['clientType'])}
+                          className="w-full px-3 py-2 text-sm bg-[#181818] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none cursor-pointer font-mono"
+                        >
+                          {CLIENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 font-mono uppercase tracking-wider mb-1" htmlFor="field-client-source">Lead Channel</label>
+                        <select
+                          id="field-client-source"
+                          value={acquisitionSource}
+                          onChange={(e) => setAcquisitionSource(e.target.value as Customer['acquisitionSource'])}
+                          className="w-full px-3 py-2 text-sm bg-[#181818] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none cursor-pointer font-mono"
+                        >
+                          {ACQUISITION_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 font-mono uppercase tracking-wider mb-1" htmlFor="field-client-name">Client Name <span className="text-[#F87171]">*</span></label>
+                      <input
+                        id="field-client-name"
+                        type="text"
+                        required
+                        placeholder="e.g. Almaz Tekle"
+                        value={clientName}
+                        onChange={(e) => setClientName(e.target.value)}
+                        className="w-full px-3 py-2 text-sm bg-[#181818] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none font-sans"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 font-mono uppercase tracking-wider mb-1" htmlFor="field-client-phone">Phone / Contact</label>
+                        <input
+                          id="field-client-phone"
+                          type="text"
+                           placeholder="e.g. +251 911..."
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                          className="w-full px-3 py-2 text-sm bg-[#181818] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 font-mono uppercase tracking-wider mb-1" htmlFor="field-client-agent">Taken By <span className="text-[#F87171]">*</span></label>
+                        <select
+                          id="field-client-agent"
+                          value={orderTakenBy}
+                          onChange={(e) => setOrderTakenBy(e.target.value as Customer['orderTakenBy'])}
+                          className="w-full px-3 py-2 text-sm bg-[#181818] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none cursor-pointer font-mono"
+                        >
+                          {(employees.length > 0 ? employees.map(emp => emp.name) : AGENTS).map(a => (
+                            <option key={a} value={a}>{a}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 font-mono uppercase tracking-wider mb-1" htmlFor="field-client-product">Product Type</label>
+                        <select
+                          id="field-client-product"
+                          value={productType}
+                          onChange={(e) => setProductType(e.target.value)}
+                          className="w-full px-3 py-2 text-sm bg-[#181818] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none cursor-pointer font-sans"
+                        >
+                          {PRODUCT_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 font-mono uppercase tracking-wider mb-1" htmlFor="field-client-delivery">Final Payment Date (Delivery Date)</label>
+                        <input
+                          id="field-client-delivery"
+                          type="date"
+                          required
+                          value={deliveryDate}
+                          onChange={(e) => setDeliveryDate(e.target.value)}
+                          className="w-full px-3 py-2 text-sm bg-[#181818] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none font-mono cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="bg-[#181818] border border-[#262626] rounded-none p-4 mt-6 space-y-4">
+                      <span className="text-[10px] text-gray-500 font-mono uppercase tracking-wider font-bold block">Live Automated Financial Calculations</span>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-[10px] font-mono font-medium text-gray-400 uppercase tracking-wider mb-1" htmlFor="field-client-qty">Quantity</label>
+                          <input
+                            id="field-client-qty"
+                            type="text"
+                            required
+                            value={qtyInput}
+                            onChange={(e) => {
+                              const v = cleanLeadingZeros(e.target.value);
+                              setQtyInput(v);
+                              setQuantity(parseFractionOrExpression(v));
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const res = parseFractionOrExpression(qtyInput);
+                                setQtyInput(res.toString());
+                                setQuantity(res);
+                              }
+                            }}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] border border-[#262626] text-white rounded-none outline-none font-mono focus:border-[#ee317b]"
+                          />
+                        </div>
+
+                        <div className="border border-[#262626] bg-[#121212] p-3 space-y-3 col-span-3">
+                          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={isVatAdded}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setIsVatAdded(checked);
+                                if (checked) {
+                                  // compute VAT from current base unit price
+                                  const baseVal = parseFractionOrExpression(baseUnitPriceInput);
+                                  const withVat = Math.round(baseVal * 1.15 * 100) / 100;
+                                  setPriceInput(withVat.toString());
+                                  setUnitPrice(withVat);
+                                } else {
+                                  // revert back to original
+                                  setPriceInput(baseUnitPriceInput);
+                                  setUnitPrice(parseFractionOrExpression(baseUnitPriceInput));
+                                }
+                              }}
+                              className="accent-[#ee317b]"
+                            />
+                            <span className="text-xs text-white uppercase tracking-wider font-bold">Needs Receipt? (Add 15% VAT)</span>
+                          </label>
+
+                          {isVatAdded && (
+                            <div className="grid grid-cols-2 gap-3 pt-1 border-t border-[#262626]/60">
+                              <div>
+                                <label className="block text-[10px] text-gray-400 uppercase tracking-wider font-mono mb-1">Item Price BEFORE VAT (ETB)</label>
+                                <input
+                                  type="text"
+                                  value={baseUnitPriceInput}
+                                  onChange={(e) => {
+                                    const cleaned = cleanLeadingZeros(e.target.value);
+                                    setBaseUnitPriceInput(cleaned);
+                                    // auto-calc dynamic with-vat price
+                                    const baseVal = parseFractionOrExpression(cleaned);
+                                    const withVat = Math.round(baseVal * 1.15 * 100) / 100;
+                                    setPriceInput(withVat.toString());
+                                    setUnitPrice(withVat);
+                                  }}
+                                  className="w-full px-2.5 py-1.5 text-xs bg-[#181818] border border-[#262626] text-white rounded-none outline-none font-mono focus:border-[#ee317b]"
+                                  placeholder="e.g. 100"
+                                />
+                              </div>
+                              <div className="text-xs font-mono flex flex-col justify-center text-gray-500 pl-1">
+                                <p>15% VAT Rate Added</p>
+                                <p className="text-white">VAT: <span className="text-[#ee317b] font-bold">{(parseFractionOrExpression(baseUnitPriceInput) * 0.15).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} ETB</span></p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-mono font-medium text-gray-400 uppercase tracking-wider mb-1" htmlFor="field-client-price">Unit Price (ETB)</label>
+                          <input
+                            id="field-client-price"
+                            type="text"
+                            required
+                            disabled={isVatAdded}
+                            value={priceInput}
+                            onChange={(e) => {
+                              const v = cleanLeadingZeros(e.target.value);
+                              setPriceInput(v);
+                              setUnitPrice(parseFractionOrExpression(v));
+                              // if not vat added, keep base price input in sync too
+                              if (!isVatAdded) {
+                                setBaseUnitPriceInput(v);
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const res = parseFractionOrExpression(priceInput);
+                                setPriceInput(res.toString());
+                                setUnitPrice(res);
+                              }
+                            }}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] border border-[#262626] text-white rounded-none outline-none font-mono focus:border-[#ee317b] disabled:opacity-65"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-mono font-medium text-gray-400 uppercase tracking-wider mb-1" htmlFor="field-client-advance">Advance (ETB)</label>
+                          <input
+                            id="field-client-advance"
+                            type="text"
+                            required
+                            value={advanceInput}
+                            onChange={(e) => {
+                              const v = cleanLeadingZeros(e.target.value);
+                              setAdvanceInput(v);
+                              setAdvancePayment(parseFractionOrExpression(v));
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const res = parseFractionOrExpression(advanceInput);
+                                setAdvanceInput(res.toString());
+                                setAdvancePayment(res);
+                              }
+                            }}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] border border-[#262626] text-white rounded-none outline-none font-mono focus:border-[#ee317b]"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 pt-2">
+                        <div>
+                          <label className="block text-[10px] font-mono font-medium text-gray-400 uppercase tracking-wider mb-1" htmlFor="field-client-advance-date">Advance Payment Date</label>
+                          <input
+                            id="field-client-advance-date"
+                            type="date"
+                            required
+                            value={advancePaymentDate}
+                            onChange={(e) => setAdvancePaymentDate(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] border border-[#262626] text-white rounded-none outline-none font-mono focus:border-[#ee317b] cursor-pointer"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-mono font-medium text-gray-400 uppercase tracking-wider mb-1" htmlFor="field-client-bank">Bank Account for Advance (Deposit)</label>
+                          <select
+                            id="field-client-bank"
+                            value={paymentMethodId}
+                            onChange={(e) => setPaymentMethodId(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] border border-[#262626] text-white rounded-none outline-none font-mono focus:border-[#ee317b] cursor-pointer"
+                          >
+                            {bankAccounts.map(b => (
+                              <option key={b.id} value={b.id}>
+                                {b.name} {b.accountNumber ? `(A/C: ${b.accountNumber})` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 pb-1">
+                        <div>
+                          <label className="block text-[10px] font-mono font-medium text-gray-400 uppercase tracking-wider mb-1" htmlFor="field-client-bank-remaining">Bank for Remaining Balance (Final)</label>
+                          <select
+                            id="field-client-bank-remaining"
+                            value={bankRemainingId}
+                            onChange={(e) => setBankRemainingId(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] border border-[#262626] text-white rounded-none outline-none font-mono focus:border-[#ee317b] cursor-pointer animate-pulse"
+                          >
+                            {bankAccounts.map(b => (
+                              <option key={b.id} value={b.id}>
+                                {b.name} {b.accountNumber ? `(A/C: ${b.accountNumber})` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-mono font-medium text-gray-400 uppercase tracking-wider mb-1" htmlFor="field-incompletion-reason">Incompletion Reason / Notes</label>
+                          <input
+                            id="field-incompletion-reason"
+                            type="text"
+                            placeholder="e.g. Awaiting design finalization or None"
+                            value={incompletionReason}
+                            onChange={(e) => setIncompletionReason(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] border border-[#262626] text-white rounded-none outline-none font-sans focus:border-[#ee317b]"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 pt-3 border-t border-[#262626] text-xs font-mono">
+                        <div>
+                          <span className="text-gray-500 block text-[9px] uppercase font-mono">Full Payment (Col X Formula)</span>
+                          <span className="text-sm font-semibold text-[#ee317b]">
+                            {computedFullPayment.toLocaleString()} ETB
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-gray-500 block text-[9px] uppercase font-mono">Remaining Due (Col V Formula)</span>
+                          <span className={`text-sm font-semibold ${computedRemainingBalance > 0 ? 'text-[#F87171]' : 'text-[#71b536]'}`}>
+                            {computedRemainingBalance <= 0 ? 'Paid (0 ETB)' : `${computedRemainingBalance.toLocaleString()} ETB`}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {formStep === 2 && (
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-mono uppercase tracking-wider text-gray-500 font-bold border-b border-[#262626] pb-1.5">2. Standard Layout Papers Deduction</h4>
+                    <p className="text-xs text-gray-400 leading-relaxed font-mono">
+                      Select which paper variant types and the literal sheets consumed by this project. Standard papers decrement 1-for-1 from matching stock names.
+                    </p>
+
+                    {/* Paper Type 1 */}
+                    <div className="bg-[#181818] border border-[#262626] rounded-none p-4 space-y-3 font-mono">
+                      <span className="text-[10px] text-[#ee317b] tracking-wider uppercase font-bold block">First Layout Stock Deduction (Col L &amp; M)</span>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[10px] text-gray-400 uppercase tracking-widest mb-1">Paper Type 1</label>
+                          <select
+                            value={paperType1}
+                            onChange={(e) => setPaperType1(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none font-mono cursor-pointer"
+                          >
+                            {paperStocks.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-gray-400 uppercase tracking-widest mb-1">Sheets consumed per card/piece</label>
+                          <input
+                            type="text"
+                            value={amount1}
+                            onChange={(e) => setAmount1(cleanLeadingZeros(e.target.value))}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                setAmount1(parseFractionOrExpression(amount1).toString());
+                              }
+                            }}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] text-white border border-[#262626] rounded-none outline-none focus:border-[#ee317b]"
+                            placeholder="e.g. 1/4 or 0.5"
+                          />
+                          <div className="text-[10px] text-gray-500 mt-1 flex flex-col font-mono gap-0.5">
+                            <span className="text-stone-300">Parsed factor: {parseFractionOrExpression(amount1)} sheets/card</span>
+                            <span className="text-[#ee317b]">Total sheets deducted ({parseFractionOrExpression(amount1)} × {quantity}): {Number((parseFractionOrExpression(amount1) * quantity).toFixed(2))} sheets</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Paper Type 2 */}
+                    <div className="bg-[#181818] border border-[#262626] rounded-none p-4 space-y-3 font-mono">
+                      <span className="text-[10px] text-gray-400 tracking-wider uppercase font-bold block">Optional Second Layout Stock (Col N &amp; O)</span>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[10px] text-gray-400 uppercase tracking-widest mb-1">Paper Type 2</label>
+                          <select
+                            value={paperType2}
+                            onChange={(e) => setPaperType2(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none font-mono cursor-pointer"
+                          >
+                            <option value="None">None</option>
+                            {paperStocks.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-gray-400 uppercase tracking-widest mb-1">Sheets consumed per card/piece</label>
+                          <input
+                            type="text"
+                            value={amount2}
+                            onChange={(e) => setAmount2(cleanLeadingZeros(e.target.value))}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                setAmount2(parseFractionOrExpression(amount2).toString());
+                              }
+                            }}
+                            disabled={paperType2 === 'None'}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] text-white border border-[#262626] rounded-none outline-none focus:border-[#ee317b] disabled:opacity-40 disabled:cursor-not-allowed"
+                            placeholder="e.g. 1/2"
+                          />
+                          {paperType2 !== 'None' && (
+                            <div className="text-[10px] text-gray-500 mt-1 flex flex-col font-mono gap-0.5">
+                              <span className="text-stone-300">Parsed factor: {parseFractionOrExpression(amount2)} sheets/card</span>
+                              <span className="text-[#71b536]">Total sheets deducted ({parseFractionOrExpression(amount2)} × {quantity}): {Number((parseFractionOrExpression(amount2) * quantity).toFixed(2))} sheets</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Paper Type 3 */}
+                    <div className="bg-[#181818] border border-[#262626] rounded-none p-4 space-y-3 font-mono">
+                      <span className="text-[10px] text-gray-400 tracking-wider uppercase font-bold block">Optional Third Layout Stock (Col P &amp; Q)</span>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[10px] text-gray-400 uppercase tracking-widest mb-1">Paper Type 3</label>
+                          <select
+                            value={paperType3}
+                            onChange={(e) => setPaperType3(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none font-mono cursor-pointer"
+                          >
+                            <option value="None">None</option>
+                            {paperStocks.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-gray-400 uppercase tracking-widest mb-1">Sheets consumed per card/piece</label>
+                          <input
+                            type="text"
+                            value={amount3}
+                            onChange={(e) => setAmount3(cleanLeadingZeros(e.target.value))}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                setAmount3(parseFractionOrExpression(amount3).toString());
+                              }
+                            }}
+                            disabled={paperType3 === 'None'}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] text-white border border-[#262626] rounded-none outline-none focus:border-[#ee317b] disabled:opacity-40 disabled:cursor-not-allowed"
+                            placeholder="e.g. 1/4"
+                          />
+                          {paperType3 !== 'None' && (
+                            <div className="text-[10px] text-gray-500 mt-1 flex flex-col font-mono gap-0.5">
+                              <span className="text-stone-300">Parsed factor: {parseFractionOrExpression(amount3)} sheets/card</span>
+                              <span className="text-[#71b536]">Total sheets deducted ({parseFractionOrExpression(amount3) * quantity}): {Number((parseFractionOrExpression(amount3) * quantity).toFixed(2))} sheets</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {formStep === 3 && (
+                  <div className="space-y-4 font-mono">
+                    <h4 className="text-xs font-mono uppercase tracking-wider text-gray-500 font-bold border-b border-[#262626] pb-1.5">3. Auxiliary / Special Layout Sheets (Query Formulas)</h4>
+                    <p className="text-xs text-gray-400 leading-relaxed">
+                      Special formulas divide Entrance paper sheet counts by 16, and Ajabi paper counts by 9 prior to subtracting. Select materials below:
+                    </p>
+
+                    {/* Entrance Aux (Divided by 16) */}
+                    <div className="bg-[#181818] border border-[#262626] rounded-none p-4 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] text-sky-400 tracking-wider uppercase font-bold block">Entrance Sheets Spec (Col R &amp; S)</span>
+                        <span className="text-[9px] bg-[#112233]/40 border border-sky-900 text-sky-400 px-1.5 py-0.5 rounded-none font-mono">DIVIDED BY 16</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[10px] text-gray-400 uppercase tracking-widest mb-1">Entrance Stock</label>
+                          <select
+                            value={entrancePaper}
+                            onChange={(e) => setEntrancePaper(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none cursor-pointer"
+                          >
+                            <option value="None">None</option>
+                            {paperStocks.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-gray-400 uppercase tracking-widest mb-1">Deducted sheets (expression enabled)</label>
+                          <input
+                            type="text"
+                            value={amount16}
+                            onChange={(e) => setAmount16(cleanLeadingZeros(e.target.value))}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                setAmount16(parseFractionOrExpression(amount16).toString());
+                              }
+                            }}
+                            disabled={entrancePaper === 'None'}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] text-white border border-[#262626] rounded-none outline-none focus:border-[#ee317b] disabled:opacity-40 disabled:cursor-not-allowed"
+                            placeholder="e.g. 160 or 16 * 10"
+                          />
+                          {entrancePaper !== 'None' && (
+                            <div className="text-[10px] text-gray-500 mt-1 flex flex-col font-mono">
+                              <span className="text-stone-300">Parsed: {parseFractionOrExpression(amount16)} sheets</span>
+                              <span className="text-sky-400">Deduction ratio (sheets/16): {(parseFractionOrExpression(amount16) / 16).toFixed(2)} sheets</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-gray-500 leading-tight">
+                        E.g. entering 160 sheets automatically deducts exactly 10 full primary sheets from the stock rooms.
+                      </p>
+                    </div>
+
+                    {/* Ajabi Aux (Divided by 9) */}
+                    <div className="bg-[#181818] border border-[#262626] rounded-none p-4 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] text-pink-400 tracking-wider uppercase font-bold block">Ajabi Sheets Spec (Col T &amp; U)</span>
+                        <span className="text-[9px] bg-pink-900/20 border border-pink-900/40 text-pink-400 px-1.5 py-0.5 rounded-none font-mono">DIVIDED BY 9</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[10px] text-gray-400 uppercase tracking-widest mb-1">Ajabi Stock</label>
+                          <select
+                            value={ajabiPaper}
+                            onChange={(e) => setAjabiPaper(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none cursor-pointer"
+                          >
+                            <option value="None">None</option>
+                            {paperStocks.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-gray-400 uppercase tracking-widest mb-1">Deducted sheets (expression enabled)</label>
+                          <input
+                            type="text"
+                            value={amount9}
+                            onChange={(e) => setAmount9(cleanLeadingZeros(e.target.value))}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                setAmount9(parseFractionOrExpression(amount9).toString());
+                              }
+                            }}
+                            disabled={ajabiPaper === 'None'}
+                            className="w-full px-2.5 py-1.5 text-xs bg-[#121212] text-white border border-[#262626] rounded-none outline-none focus:border-[#ee317b] disabled:opacity-40 disabled:cursor-not-allowed"
+                            placeholder="e.g. 90 or 9 * 10"
+                          />
+                          {ajabiPaper !== 'None' && (
+                            <div className="text-[10px] text-gray-500 mt-1 flex flex-col font-mono">
+                              <span className="text-stone-300">Parsed: {parseFractionOrExpression(amount9)} sheets</span>
+                              <span className="text-pink-400">Deduction ratio (sheets/9): {(parseFractionOrExpression(amount9) / 9).toFixed(2)} sheets</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-gray-500 leading-tight">
+                        E.g. entering 90 sheets automatically deducts exactly 10 full primary sheets from available warehouse stocks.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+              </form>
+
+              {/* Bottom Nav */}
+              <div className="border-t border-[#262626] px-6 py-4 bg-[#181818] flex items-center justify-between select-none">
+                <div>
+                  {formStep > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setFormStep((prev) => (prev - 1) as 1 | 2 | 3)}
+                      className="px-4 py-2 bg-transparent text-gray-300 hover:text-white border border-[#262626] select-none text-xs font-mono font-bold cursor-pointer"
+                    >
+                      Back
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsFormOpen(false)}
+                    className="px-4 py-2 bg-transparent text-gray-400 hover:text-white text-xs font-mono select-none cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  
+                  {formStep < 3 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (formStep === 1 && !clientName.trim()) {
+                          setFormError('Client name holds metadata requirements and must be inputted.');
+                          return;
+                        }
+                        setFormError('');
+                        setFormStep((prev) => (prev + 1) as 1 | 2 | 3);
+                      }}
+                      className="px-4 py-2 bg-[#ee317b] text-white font-mono font-bold text-xs hover:bg-[#d61e63] flex items-center gap-1 cursor-pointer select-none"
+                    >
+                      <span>Next Page</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      {!editingCustomer && (
+                        <button
+                          type="button"
+                          onClick={handleSaveAndAddAnother}
+                          className="px-4 py-2 border border-[#ee317b] text-[#ee317b] hover:bg-[#ee317b]/10 text-xs font-mono font-bold cursor-pointer select-none"
+                          title="Save this order, and immediately start another order for this same customer"
+                        >
+                          Save &amp; Add Another Order
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleFormSubmit}
+                        className="px-5 py-2 bg-[#ee317b] hover:bg-[#d61e63] text-white text-xs font-mono font-bold cursor-pointer select-none"
+                      >
+                        {editingCustomer ? 'Save Modification' : 'Complete Record Order'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {deletingCustomerId && (() => {
+          const targetCust = customers.find(c => c.id === deletingCustomerId);
+          if (!targetCust) return null;
+          return (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 font-mono select-none"
+            >
+              <motion.div 
+                initial={{ scale: 0.95, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.95, y: 20 }}
+                className="bg-[#121212] border border-[#ee317b]/40 max-w-md w-full p-6 text-left space-y-5"
+              >
+                <div className="flex items-start gap-3.5">
+                  <div className="text-[#ee317b] text-3xl">⚠️</div>
+                  <div className="space-y-1.5 font-semibold text-white">
+                    <h3 className="text-white text-sm font-bold uppercase tracking-wider">Confirm Card Order Disposal</h3>
+                    <p className="text-xs text-gray-400 font-sans font-normal leading-relaxed">
+                      Are you sure you want to delete the paper consumption record for <span className="text-white font-semibold font-mono">"{targetCust.clientName}"</span>? This operation is irreversible and will restore occupied paper quantities back to your available inventory room balances.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#262626]">
+                  <button
+                    onClick={() => setDeletingCustomerId(null)}
+                    className="px-3.5 py-1.5 text-xs text-gray-400 hover:text-white border border-[#262626] bg-[#181818] uppercase tracking-wider cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      onDeleteCustomer(deletingCustomerId);
+                      setDeletingCustomerId(null);
+                    }}
+                    className="px-4 py-1.5 text-xs bg-[#ee317b] hover:bg-[#d61e63] text-white font-bold uppercase tracking-widest cursor-pointer"
+                  >
+                    Delete Permanently
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
+
+    </div>
+  );
+}

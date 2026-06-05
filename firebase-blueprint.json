@@ -1,0 +1,76 @@
+{
+  "entities": {
+    "PaperStock": {
+      "title": "Paper Stock",
+      "description": "Represents the initial and purchased inventory of a paper stock variant.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "initialStock": { "type": "number" }
+      },
+      "required": ["id", "name", "initialStock"]
+    },
+    "Customer": {
+      "title": "Customer Order Ledger",
+      "description": "Represents a customer order with corresponding paper consumption profiles.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "clientType": { "type": "string", "enum": ["Individual", "Organization"] },
+        "clientName": { "type": "string" },
+        "phone": { "type": "string" },
+        "acquisitionSource": { "type": "string", "enum": ["TikTok", "Instagram", "Telegram", "Word of Mouth", "Repeat", "cat"] },
+        "orderTakenBy": { "type": "string", "enum": ["Bereket", "Yeabsra", "Yordanos"] },
+        "productType": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unitPrice": { "type": "number" },
+        "advancePayment": { "type": "number" },
+        "paperType1": { "type": "string" },
+        "amount1": { "type": "number" },
+        "paperType2": { "type": "string" },
+        "amount2": { "type": "number" },
+        "paperType3": { "type": "string" },
+        "amount3": { "type": "number" },
+        "entrancePaper": { "type": "string" },
+        "amount16": { "type": "number" },
+        "ajabiPaper": { "type": "string" },
+        "amount9": { "type": "number" },
+        "deliveryDate": { "type": "string" }
+      },
+      "required": [
+        "id",
+        "clientType",
+        "clientName",
+        "phone",
+        "acquisitionSource",
+        "orderTakenBy",
+        "productType",
+        "quantity",
+        "unitPrice",
+        "advancePayment",
+        "paperType1",
+        "amount1",
+        "paperType2",
+        "amount2",
+        "paperType3",
+        "amount3",
+        "entrancePaper",
+        "amount16",
+        "ajabiPaper",
+        "amount9",
+        "deliveryDate"
+      ]
+    }
+  },
+  "firestore": {
+    "/paperStocks/{stockId}": {
+      "schema": "PaperStock",
+      "description": "Global list of available paper stocks."
+    },
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "List of active customer logs and orders."
+    }
+  }
+}
