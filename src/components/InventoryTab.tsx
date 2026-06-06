@@ -15,8 +15,11 @@ import {
   Layers,
   Database,
   Lock,
-  Trash2
+  Trash2,
+  CheckSquare,
+  Download
 } from 'lucide-react';
+import { exportInventoryCSV } from '../utils/csvExport';
 import { Customer, PaperStock, EmployeeUser } from '../types';
 import { parseFractionOrExpression, cleanLeadingZeros } from '../utils';
 
@@ -37,7 +40,6 @@ export default function InventoryTab({
 }: InventoryTabProps) {
   
   const [searchQuery, setSearchQuery] = useState('');
-  const [showFormulaInfo, setShowFormulaInfo] = useState(false);
   
   // State for Add/Edit Stock
   const [editingStock, setEditingStock] = useState<PaperStock | null>(null);
@@ -51,9 +53,15 @@ export default function InventoryTab({
   // Non-blocking custom delete tracking ID for paper stocks
   const [deletingStockId, setDeletingStockId] = useState<string | null>(null);
 
+  // Multi-selection state for paper stocks
+  const [selectedStockIds, setSelectedStockIds] = useState<string[]>([]);
+  // Quick replenishment state
+  const [replenishingStockId, setReplenishingStockId] = useState<string | null>(null);
+  const [replenishAmount, setReplenishAmount] = useState<string>('');
+
   const isAdmin = currentUser?.role === 'admin';
 
-  // Helper formula to compute Total Consumed for a specific stock name
+  // Helper to compute Total Consumed for a specific stock name
   const computeTotalConsumed = (name: string): number => {
     let consumed = 0;
     const lowerName = name.trim().toLowerCase();
@@ -113,17 +121,34 @@ export default function InventoryTab({
     e.preventDefault();
     if (!newStockName.trim()) return;
     
-    const exists = paperStocks.some(s => s.name.trim().toLowerCase() === newStockName.trim().toLowerCase());
-    if (exists) {
-      alert(`"${newStockName}" already exists in the inventory dashboard list.`);
+    const trimmedName = newStockName.trim();
+    const evaluatedInitial = Math.max(0, parseFractionOrExpression(newStockInitial));
+
+    const existingIndex = paperStocks.findIndex(s => s.name.trim().toLowerCase() === trimmedName.toLowerCase());
+    if (existingIndex >= 0) {
+      // Stock already exists! Accumulate new stock volume automatically
+      const existingItem = paperStocks[existingIndex];
+      const updatedItem = {
+        ...existingItem,
+        initialStock: existingItem.initialStock + evaluatedInitial
+      };
+      
+      const updatedList = [...paperStocks];
+      updatedList[existingIndex] = updatedItem;
+      
+      onUpdateStocks(updatedList);
+      
+      alert(`Merged Stockpile: Added ${evaluatedInitial.toLocaleString()} sheets to existing paper stock category "${existingItem.name}" (Updated Total: ${updatedItem.initialStock.toLocaleString()}).`);
+      
+      setNewStockName('');
+      setNewStockInitial('');
+      setShowAddForm(false);
       return;
     }
 
-    const evaluatedInitial = Math.max(0, parseFractionOrExpression(newStockInitial));
-
     const newStock: PaperStock = {
       id: 'p_' + Date.now(),
-      name: newStockName.trim(),
+      name: trimmedName,
       initialStock: evaluatedInitial
     };
 
@@ -168,59 +193,8 @@ export default function InventoryTab({
 
   return (
     <div className="space-y-6 select-none" id="inventory-tab-pnl">
-      
-      {/* Dynamic Summary Cards - Responsive Flex spacing */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        
-        {/* Total Variants */}
-        <div className="bg-[#121212] border border-[#262626] rounded-none p-4 flex items-center justify-between shadow-none">
-          <div>
-            <span className="text-xs text-gray-400 font-mono tracking-wider uppercase block">Total Paper Variants</span>
-            <span className="text-2xl font-mono font-bold text-white mt-1 block">{totalItems}</span>
-          </div>
-          <div className="p-3 bg-[#1C1C1C] text-[#ee317b]">
-            <Package className="w-5 h-5" />
-          </div>
-        </div>
-        
-        {/* Sheets on hand (using secondary theme green) */}
-        <div className="bg-[#121212] border border-[#262626] rounded-none p-4 flex items-center justify-between shadow-none">
-          <div>
-            <span className="text-xs text-gray-400 font-mono tracking-wider uppercase block">Sheets on Hand</span>
-            <span className="text-2xl font-mono font-bold text-[#71b536] mt-1 block">
-              {totalRemainingSheets.toLocaleString(undefined, { maximumFractionDigits: 1 })}
-              <span className="text-xs font-normal text-gray-500 ml-1">/ {totalInitialSheets.toLocaleString()}</span>
-            </span>
-          </div>
-          <div className="p-3 bg-[#1C1C1C] text-[#71b536]">
-            <CheckCircle className="w-5 h-5" />
-          </div>
-        </div>
 
-        {/* Low Stock count */}
-        <div className="bg-[#121212] border border-[#262626] rounded-none p-4 flex items-center justify-between shadow-none">
-          <div>
-            <span className="text-xs text-gray-400 font-mono tracking-wider uppercase block">Low Stock Alert</span>
-            <span className="text-2xl font-mono font-bold text-[#FACC15] mt-1 block">{lowStockCount} items</span>
-          </div>
-          <div className="p-3 bg-[#1D1B12] text-[#FACC15]">
-            <AlertTriangle className="w-5 h-5 animate-pulse" />
-          </div>
-        </div>
-
-        {/* Out of Stock count */}
-        <div className="bg-[#121212] border border-[#262626] rounded-none p-4 flex items-center justify-between shadow-none">
-          <div>
-            <span className="text-xs text-gray-400 font-mono tracking-wider uppercase block">Out of Stock Alert</span>
-            <span className="text-2xl font-mono font-bold text-[#F87171] mt-1 block">{outOfStockCount} items</span>
-          </div>
-          <div className="p-3 bg-[#1E1214] text-[#F87171]">
-            <TrendingDown className="w-5 h-5" />
-          </div>
-        </div>
-      </div>
-
-      {/* Control Bar & Formulas Accordion */}
+      {/* Control Bar & Selection Bar */}
       <div className="bg-[#121212] border border-[#262626] rounded-none p-4 shadow-none flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
           <div className="relative flex-1 max-w-sm">
@@ -236,95 +210,104 @@ export default function InventoryTab({
           
           <button 
             type="button"
-            onClick={() => setShowFormulaInfo(!showFormulaInfo)}
+            onClick={() => {
+              const allFilteredIds = filteredStocks.map(s => s.id);
+              const allSelected = allFilteredIds.length > 0 && allFilteredIds.every(id => selectedStockIds.includes(id));
+              if (allSelected) {
+                setSelectedStockIds(prev => prev.filter(id => !allFilteredIds.includes(id)));
+              } else {
+                setSelectedStockIds(prev => {
+                  const next = [...prev];
+                  allFilteredIds.forEach(id => {
+                    if (!next.includes(id)) next.push(id);
+                  });
+                  return next;
+                });
+              }
+            }}
             className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-mono text-gray-300 bg-[#181818] hover:bg-[#262626] border border-[#262626] rounded-none cursor-pointer transition-colors"
           >
-            <Info className="w-3.5 h-3.5 text-[#ee317b]" />
-            Formula Logic Specs
+            <CheckSquare className="w-3.5 h-3.5 text-[#ee317b]" />
+            {filteredStocks.length > 0 && filteredStocks.every(s => selectedStockIds.includes(s.id))
+              ? "Deselect All Stocks"
+              : `Select All Stocks (${filteredStocks.length})`}
           </button>
         </div>
 
-        {isAdmin ? (
-          <div className="flex items-stretch sm:items-center gap-2 select-none">
-            <button
-              type="button"
-              onClick={onResetStocks}
-              className="text-xs font-mono text-gray-400 bg-[#121212] hover:bg-[#1C1C1C] border border-[#262626] rounded-none px-3 py-1.5 flex items-center justify-center gap-1 transition-colors cursor-pointer"
-              title="Reset Stock to default system values"
-            >
-              <RefreshCw className="w-3 h-3 text-[#ee317b]" />
-              Reset Defaults
-            </button>
-            
-            <button
-              type="button"
-              onClick={() => setShowAddForm(true)}
-              className="text-xs font-mono font-bold text-white bg-[#ee317b] hover:bg-[#d61e63] border border-[#ee317b] rounded-none px-3.5 py-1.5 flex items-center justify-center gap-1.5 shadow-none transition-colors cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              Add Paper Stock
-            </button>
-          </div>
-        ) : (
-          <div className="text-xs font-mono text-gray-500 bg-[#151515] border border-[#262626] px-3 py-1.5 flex items-center gap-1.5">
-            <Lock className="w-3.5 h-3.5 text-[#ee317b]" />
-            EMPLOYEE ACCESS: Inventory is READ-ONLY
-          </div>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              exportInventoryCSV(paperStocks, customers);
+            }}
+            className="text-xs font-mono font-bold text-cyan-400 hover:text-white hover:bg-cyan-500/10 border border-cyan-500/30 bg-cyan-500/5 rounded-none px-3.5 py-1.5 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            title="Download full stockpile inventory ledger as a CSV file"
+          >
+            <Download className="w-4 h-4" />
+            Export Inventory CSV
+          </button>
+
+          {isAdmin ? (
+            <div className="flex items-stretch sm:items-center gap-2 select-none">
+              <button
+                type="button"
+                onClick={onResetStocks}
+                className="text-xs font-mono text-gray-400 bg-[#121212] hover:bg-[#1C1C1C] border border-[#262626] rounded-none px-3 py-1.5 flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                title="Reset Stock to default system values"
+              >
+                <RefreshCw className="w-3 h-3 text-[#ee317b]" />
+                Reset Defaults
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => setShowAddForm(true)}
+                className="text-xs font-mono font-bold text-white bg-[#ee317b] hover:bg-[#d61e63] border border-[#ee317b] rounded-none px-3.5 py-1.5 flex items-center justify-center gap-1.5 shadow-none transition-colors cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                Add Paper Stock
+              </button>
+            </div>
+          ) : (
+            <div className="text-xs font-mono text-gray-500 bg-[#151515] border border-[#262626] px-3 py-1.5 flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-[#ee317b]" />
+              EMPLOYEE ACCESS: Inventory is READ-ONLY
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Formula Logic Breakdown Modal/Box */}
-      <AnimatePresence>
-        {showFormulaInfo && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden"
-          >
-            <div className="bg-[#121212] border border-[#262626] rounded-none p-4 text-gray-300 text-sm leading-relaxed space-y-3 font-sans">
-              <div className="flex justify-between items-start">
-                <h4 className="font-semibold text-white flex items-center gap-1.5 font-mono">
-                  <Sparkles className="w-4 h-4 text-[#ee317b]" />
-                  MENA INC V2.1 SPREADSHEET FORMULA BLUEPRINT
-                </h4>
-                <button 
-                  onClick={() => setShowFormulaInfo(false)}
-                  className="text-gray-400 hover:text-white cursor-pointer"
-                  type="button"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <p className="text-xs text-gray-400 font-mono">
-                Primary paper quantity is multiplied by card quantity. Entrance/Ajabi auxiliary quantities are divided by 16 or 9. The exact Google Sheets formulas are:
-              </p>
-              
-              <div className="bg-[#181818] border border-[#262626] p-4 text-xs font-mono space-y-2 text-gray-400">
-                <span className="text-[#ee317b] font-bold block">Consolidated Excel Formula (Cell C2 equivalent):</span>
-                <p className="line-clamp-none break-all font-mono leading-relaxed bg-[#101010] p-2 text-gray-200 border border-[#262626]">
-                  =SUMPRODUCT(('Customer management'!$L:$L=A2)*'Customer management'!$M:$M, 'Customer management'!$G:$G)
-                  + SUMPRODUCT(('Customer management'!$N:$N=A2)*'Customer management'!$O:$O, 'Customer management'!$G:$G)
-                  + SUMPRODUCT(('Customer management'!$P:$P=A2)*'Customer management'!$Q:$Q, 'Customer management'!$G:$G)
-                  + (SUMIF('Customer management'!$R:$R, A2, 'Customer management'!$S:$S) / 16)
-                  + (SUMIF('Customer management'!$T:$T, A2, 'Customer management'!$U:$U) / 9)
-                </p>
-                
-                <div className="pt-2 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono text-gray-300 leading-normal">
-                  <div>
-                    <strong className="text-stone-300 block mb-1">Standard Papers (1-per-card, multiplied)</strong>
-                    Col L &amp; M, Col N &amp; O, Col P &amp; Q deduct sheets multiplied by Order Quantity (Col G).
-                  </div>
-                  <div>
-                    <strong className="text-[#71b536] block mb-1">Entrance &amp; Ajabi Auxiliary (Divided ratios)</strong>
-                    Entrance Paper gets divided by 16. Ajabi Paper gets divided by 9.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Selected Stock Bulk Action Ribbon */}
+      {selectedStockIds.length > 0 && (
+        <div className="bg-[#112918] border border-[#71b536]/30 p-3 rounded-none flex items-center justify-between text-xs font-mono animate-fadeIn mb-4">
+          <div className="flex items-center gap-2 text-[#71b536]">
+            <span className="w-2 h-2 rounded-full bg-[#71b536] animate-ping" />
+            <span>Selected <strong>{selectedStockIds.length}</strong> paper stocks for action...</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm(`Are you absolutely sure you want to permanently delete the ${selectedStockIds.length} selected paper stockroom files?`)) {
+                  const remainingStocks = paperStocks.filter(s => !selectedStockIds.includes(s.id));
+                  onUpdateStocks(remainingStocks);
+                  setSelectedStockIds([]);
+                }
+              }}
+              className="px-3 py-1 bg-[#421A1D] hover:bg-[#5a1c21] border border-rose-950 text-rose-400 font-bold cursor-pointer text-[10px] tracking-wider uppercase transition-all"
+            >
+              🗑️ Delete Selected Stocks
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedStockIds([])}
+              className="px-2 py-1 hover:text-white text-zinc-400 border border-[#262626] cursor-pointer text-[10px]"
+            >
+              Deselect All
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Inventory Board Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -343,19 +326,68 @@ export default function InventoryTab({
             <table className="w-full text-left border-collapse text-xs font-sans">
               <thead>
                 <tr className="bg-[#181818] border-b border-[#262626] text-gray-400 font-mono uppercase tracking-wider">
-                  <th className="py-3 px-4 font-semibold text-gray-400">Paper Stock Name (Col A)</th>
-                  <th className="py-3 px-4 font-semibold text-gray-400 text-right">Initial Sheets (Col B)</th>
-                  <th className="py-3 px-4 font-semibold text-gray-400 text-right">Total Consumed (Col C)</th>
-                  <th className="py-3 px-4 font-semibold text-gray-400 text-right">Stock on Hand (Col D)</th>
-                  <th className="py-3 px-4 font-semibold text-gray-400">Status Alert (Col E)</th>
-                  <th className="py-3 px-4 text-center w-28">Actions</th>
+                  <th className="py-3 px-3 text-center w-10">
+                    <input
+                      type="checkbox"
+                      checked={filteredStocks.length > 0 && selectedStockIds.length === filteredStocks.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedStockIds(filteredStocks.map(s => s.id));
+                        } else {
+                          setSelectedStockIds([]);
+                        }
+                      }}
+                      className="accent-[#71b536] cursor-pointer"
+                      title="Select/Deselect all filtered rows"
+                    />
+                  </th>
+                  <th className="py-3 px-4 font-semibold text-gray-400">Paper Stock Name</th>
+                  <th className="py-3 px-4 font-semibold text-gray-400 text-right">Initial Sheets</th>
+                  <th className="py-3 px-4 font-semibold text-gray-400 text-right">Total Consumed</th>
+                  <th className="py-3 px-4 font-semibold text-gray-400 text-right">Stock on Hand</th>
+                  <th className="py-3 px-4 font-semibold text-gray-400">Status Alert</th>
+                  <th className="py-3 px-4 text-center w-40">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#262626] text-gray-300 font-mono">
                 {calculatedStocks.map((stock) => {
                   const status = getStatus(stock.remaining);
+                  const isSelected = selectedStockIds.includes(stock.id);
+                  const isOutOfStock = stock.remaining <= 0;
+                  const isLowStock = stock.remaining < 50 && stock.remaining > 0;
+                  
+                  let rowClass = 'transition-colors';
+                  if (isSelected) {
+                    rowClass += ' bg-[#121912]/20 border-l-2 border-[#71b536]';
+                  } else if (isOutOfStock) {
+                    rowClass += ' out-of-stock-row';
+                  } else if (isLowStock) {
+                    rowClass += ' low-stock-row';
+                  } else {
+                    rowClass += ' hover:bg-[#181818]';
+                  }
+
                   return (
-                    <tr key={stock.id} className="hover:bg-[#181818] transition-colors">
+                    <tr 
+                      key={stock.id} 
+                      className={rowClass}
+                    >
+                      {/* Checkbox */}
+                      <td className="py-3 px-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedStockIds(prev => [...prev, stock.id]);
+                            } else {
+                              setSelectedStockIds(prev => prev.filter(id => id !== stock.id));
+                            }
+                          }}
+                          className="accent-[#71b536] cursor-pointer"
+                        />
+                      </td>
+
                       {/* Name */}
                       <td className="py-3 px-4 font-sans font-bold text-white">{stock.name}</td>
                       
@@ -379,33 +411,41 @@ export default function InventoryTab({
                         </span>
                       </td>
 
-                      {/* EDIT & DELETE buttons */}
+                      {/* EDIT & DELETE & REPLENISH buttons */}
                       <td className="py-3 px-4 text-center">
-                        {isAdmin ? (
-                          <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingStock(stock);
-                                setEditInitialInput(stock.initialStock.toString());
-                              }}
-                              className="text-gray-400 hover:text-[#ee317b] hover:bg-[#262626] p-1.5 rounded-none transition-colors cursor-pointer"
-                              title={`Update Initial Purchase of "${stock.name}"`}
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setDeletingStockId(stock.id)}
-                              className="text-gray-500 hover:text-[#F87171] hover:bg-[#262626] p-1.5 rounded-none transition-colors cursor-pointer"
-                              title={`Delete "${stock.name}" entirely from system`}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ) : (
-                          <Lock className="w-3.5 h-3.5 mx-auto text-gray-600" title="Admin permissions required" />
-                        )}
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setReplenishingStockId(stock.id);
+                              setReplenishAmount('');
+                            }}
+                            className="bg-transparent text-[#71b536] hover:bg-[#71b536]/10 p-1 rounded-none border border-[#71b536]/20 text-[10px] tracking-wider transition-colors font-sans cursor-pointer flex items-center gap-0.5"
+                            title={`Add Sheets to "${stock.name}" Stock`}
+                          >
+                            <Plus className="w-3 h-3" />
+                            Refill
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingStock(stock);
+                              setEditInitialInput(stock.initialStock.toString());
+                            }}
+                            className="text-gray-400 hover:text-[#ee317b] hover:bg-[#262626] p-1 rounded-none transition-colors cursor-pointer"
+                            title={`Update Initial Purchase of "${stock.name}"`}
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeletingStockId(stock.id)}
+                            className="text-gray-500 hover:text-[#F87171] hover:bg-[#262626] p-1 rounded-none transition-colors cursor-pointer"
+                            title={`Delete "${stock.name}" entirely from system`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -492,6 +532,76 @@ export default function InventoryTab({
                 </form>
               </motion.div>
             )}
+          </AnimatePresence>
+
+          {/* Quick Replenish Sheet Stock */}
+          <AnimatePresence>
+            {replenishingStockId && (() => {
+              const stock = paperStocks.find(s => s.id === replenishingStockId);
+              if (!stock) return null;
+              return (
+                <motion.div
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 15 }}
+                  className="bg-[#121212] border border-[#71b536]/30 rounded-none p-4 shadow-none space-y-4"
+                >
+                  <div className="flex justify-between items-center border-b border-[#262626] pb-3 select-none">
+                    <span className="font-mono font-bold text-[#71b536] text-xs uppercase flex items-center gap-1.5">
+                      <Plus className="w-3.5 h-3.5" />
+                      Add More Sheets to Stock
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setReplenishingStockId(null)}
+                      className="text-gray-400 hover:text-white"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-gray-400 font-mono">
+                    Refill warehouse category <strong className="text-white">"{stock.name}"</strong> by adding sheets directly to current initial count.
+                  </p>
+
+                  <div className="space-y-3 font-mono">
+                    <div>
+                      <label className="block text-[10px] text-zinc-400 uppercase tracking-wider mb-1">Sheets to Add (expression enabled)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 500 or 1000"
+                        value={replenishAmount}
+                        onChange={(e) => setReplenishAmount(cleanLeadingZeros(e.target.value))}
+                        className="w-full px-2.5 py-1.5 text-xs bg-[#181818] text-white border border-[#262626] rounded-none outline-none focus:border-[#71b536]"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const parsedAmt = Math.max(0, parseFractionOrExpression(replenishAmount));
+                        if (parsedAmt > 0) {
+                          const updatedList = paperStocks.map(s => {
+                            if (s.id === replenishingStockId) {
+                              return {
+                                ...s,
+                                initialStock: s.initialStock + parsedAmt
+                              };
+                            }
+                            return s;
+                          });
+                          onUpdateStocks(updatedList);
+                          setReplenishingStockId(null);
+                        }
+                      }}
+                      className="w-full py-1.5 bg-[#71b536] hover:bg-[#5a932a] text-black text-xs font-bold font-mono tracking-wider cursor-pointer"
+                    >
+                      Confirm Stock Replenishment
+                    </button>
+                  </div>
+                </motion.div>
+              );
+            })()}
           </AnimatePresence>
 
           {/* Quick Create New Stock Variant */}

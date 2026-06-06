@@ -4,7 +4,6 @@ import {
   TrendingUp, 
   Users, 
   Package, 
-  FileSpreadsheet, 
   RefreshCw, 
   Clock,
   Wifi,
@@ -16,7 +15,9 @@ import {
   Eye,
   EyeOff,
   X,
-  User
+  User,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { 
   Customer, 
@@ -26,23 +27,48 @@ import {
   EmployeeUser,
   DEFAULT_USERS,
   BankAccount,
-  DEFAULT_BANK_ACCOUNTS
+  DEFAULT_BANK_ACCOUNTS,
+  Purchase,
+  ExpenseCategory,
+  INITIAL_EXPENSE_CATEGORIES,
+  INITIAL_PURCHASES
 } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import InventoryTab from './components/InventoryTab';
 import PerformanceTab from './components/PerformanceTab';
 import CustomerTab from './components/CustomerTab';
+import PurchasesTab from './components/PurchasesTab';
 
 const LOCAL_STORAGE_STOCKS_KEY = 'mena_inc_stocks_v2';
 const LOCAL_STORAGE_CUSTOMERS_KEY = 'mena_inc_customers_v2';
 const LOCAL_STORAGE_BANKS_KEY = 'mena_inc_bank_accounts_v3';
+const LOCAL_STORAGE_PURCHASES_KEY = 'mena_inc_purchases_v1';
+const LOCAL_STORAGE_CATEGORIES_KEY = 'mena_inc_categories_v1';
 
 export default function App() {
+  // Theme state
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    return (localStorage.getItem('mena_inc_theme_v3') as 'dark' | 'light') || 'dark';
+  });
+
+  useEffect(() => {
+    if (theme === 'light') {
+      document.body.classList.add('light-theme');
+      document.documentElement.classList.add('light-theme');
+    } else {
+      document.body.classList.remove('light-theme');
+      document.documentElement.classList.remove('light-theme');
+    }
+    localStorage.setItem('mena_inc_theme_v3', theme);
+  }, [theme]);
+
   // 1. "i want the customer management to be first" -> tab defaults to 'customers'
-  const [activeTab, setActiveTab] = useState<'customers' | 'inventory' | 'performance'>('customers');
+  const [activeTab, setActiveTab] = useState<'customers' | 'inventory' | 'performance' | 'purchases'>('customers');
   const [paperStocks, setPaperStocks] = useState<PaperStock[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [liveDbLinked, setLiveDbLinked] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [showResetOverlay, setShowResetOverlay] = useState<false | 'demo' | 'stocks'>(false);
@@ -51,6 +77,43 @@ export default function App() {
   const [employees, setEmployees] = useState<EmployeeUser[]>([]);
   const [currentUser, setCurrentUser] = useState<EmployeeUser | null>(null);
   const [showStaffModal, setShowStaffModal] = useState(false);
+
+  // Internet connectivity monitoring (Telegram-style indicator)
+  const [isOnline, setIsOnline] = useState(true);
+  useEffect(() => {
+    setIsOnline(window.navigator.onLine);
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // 30-second deletion undo states & timer integration
+  const [deletedHistory, setDeletedHistory] = useState<{
+    type: 'customer' | 'bulk-customers' | 'bank' | 'stock';
+    data: any;
+    timestamp: number;
+  } | null>(null);
+  const [undoCountdown, setUndoCountdown] = useState(30);
+
+  useEffect(() => {
+    if (!deletedHistory) return;
+    setUndoCountdown(30);
+    const interval = setInterval(() => {
+      setUndoCountdown(prev => {
+        if (prev <= 1) {
+          setDeletedHistory(null);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [deletedHistory]);
 
   // Operator security session variables
   const [usernameInput, setUsernameInput] = useState('');
@@ -133,10 +196,14 @@ export default function App() {
         const savedStocks = localStorage.getItem(LOCAL_STORAGE_STOCKS_KEY);
         const savedCustomers = localStorage.getItem(LOCAL_STORAGE_CUSTOMERS_KEY);
         const savedBanks = localStorage.getItem(LOCAL_STORAGE_BANKS_KEY);
+        const savedPurchases = localStorage.getItem(LOCAL_STORAGE_PURCHASES_KEY);
+        const savedCategories = localStorage.getItem(LOCAL_STORAGE_CATEGORIES_KEY);
         
         let initialS = DEFAULT_PAPER_STOCKS;
         let initialC = INITIAL_CUSTOMERS;
         let initialB = DEFAULT_BANK_ACCOUNTS;
+        let initialP = INITIAL_PURCHASES;
+        let initialCat = INITIAL_EXPENSE_CATEGORIES;
         
         if (savedStocks) {
           try {
@@ -153,12 +220,29 @@ export default function App() {
             initialB = JSON.parse(savedBanks);
           } catch (_) {}
         }
+        if (savedPurchases) {
+          try {
+            initialP = JSON.parse(savedPurchases);
+          } catch (_) {}
+        }
+        if (savedCategories) {
+          try {
+            initialCat = JSON.parse(savedCategories);
+          } catch (_) {}
+        }
 
         const { getFirebaseDb } = await import('./lib/firebase');
         const { isFirebaseConfigured } = await getFirebaseDb();
         setLiveDbLinked(isFirebaseConfigured);
 
-        const { fetchAllPaperStocks, fetchAllCustomers, fetchAllBankAccounts } = await import('./lib/dbService');
+        const { 
+          fetchAllPaperStocks, 
+          fetchAllCustomers, 
+          fetchAllBankAccounts,
+          fetchAllPurchases,
+          fetchAllExpenseCategories
+        } = await import('./lib/dbService');
+        
         const finalS = await fetchAllPaperStocks(initialS);
         const fetchedC = await fetchAllCustomers(initialC);
         const finalC = fetchedC.map(cust => {
@@ -194,14 +278,20 @@ export default function App() {
           return repaired;
         });
         const finalB = await fetchAllBankAccounts(initialB);
+        const finalP = await fetchAllPurchases(initialP);
+        const finalCat = await fetchAllExpenseCategories(initialCat);
         
         setPaperStocks(finalS);
         setCustomers(finalC);
         setBankAccounts(finalB);
+        setPurchases(finalP);
+        setCategories(finalCat);
         
         localStorage.setItem(LOCAL_STORAGE_STOCKS_KEY, JSON.stringify(finalS));
         localStorage.setItem(LOCAL_STORAGE_CUSTOMERS_KEY, JSON.stringify(finalC));
         localStorage.setItem(LOCAL_STORAGE_BANKS_KEY, JSON.stringify(finalB));
+        localStorage.setItem(LOCAL_STORAGE_PURCHASES_KEY, JSON.stringify(finalP));
+        localStorage.setItem(LOCAL_STORAGE_CATEGORIES_KEY, JSON.stringify(finalCat));
       } catch (err) {
         // Fallback
       } finally {
@@ -215,13 +305,33 @@ export default function App() {
   // Sync state changes to Local Storage & Database
   const handleUpdateStocks = async (newStocks: PaperStock[]) => {
     setIsBuffering(true);
+    // Track deleted stocks for 30s undo
+    const oldIds = new Set(paperStocks.map(s => s.id));
+    const newIds = new Set(newStocks.map(s => s.id));
+    const deletedStocks = paperStocks.filter(s => !newIds.has(s.id));
+    if (deletedStocks.length > 0) {
+      setDeletedHistory({
+        type: 'stock',
+        data: deletedStocks,
+        timestamp: Date.now()
+      });
+    }
+
     setPaperStocks(newStocks);
     localStorage.setItem(LOCAL_STORAGE_STOCKS_KEY, JSON.stringify(newStocks));
     
     try {
-      const { savePaperStockDoc } = await import('./lib/dbService');
+      const { savePaperStockDoc, deletePaperStockDoc } = await import('./lib/dbService');
+      // Delete removed stocks from DB
+      for (const ds of deletedStocks) {
+        try {
+          await deletePaperStockDoc(ds.id);
+        } catch (_) {}
+      }
       for (const stock of newStocks) {
-        await savePaperStockDoc(stock);
+        try {
+          await savePaperStockDoc(stock);
+        } catch (_) {}
       }
     } catch (_) {} finally {
       setTimeout(() => setIsBuffering(false), 400);
@@ -260,6 +370,14 @@ export default function App() {
 
   const handleDeleteCustomer = async (id: string) => {
     setIsBuffering(true);
+    const target = customers.find(item => item.id === id);
+    if (target) {
+      setDeletedHistory({
+        type: 'customer',
+        data: target,
+        timestamp: Date.now()
+      });
+    }
     const updated = customers.filter(item => item.id !== id);
     handleUpdateCustomers(updated);
     try {
@@ -268,6 +386,50 @@ export default function App() {
     } catch (_) {} finally {
       setTimeout(() => setIsBuffering(false), 400);
     }
+  };
+
+  const handleBulkUpdateCustomers = async (updatedList: Customer[]) => {
+    setIsBuffering(true);
+    const updatedIds = new Set(updatedList.map(item => item.id));
+    const deletedItems = customers.filter(item => !updatedIds.has(item.id));
+    if (deletedItems.length > 0) {
+      setDeletedHistory({
+        type: 'bulk-customers',
+        data: deletedItems,
+        timestamp: Date.now()
+      });
+    }
+
+    handleUpdateCustomers(updatedList);
+    try {
+      const { saveCustomerDoc, deleteCustomerDoc } = await import('./lib/dbService');
+      for (const item of deletedItems) {
+        try {
+          await deleteCustomerDoc(item.id);
+        } catch (_) {}
+      }
+      for (const item of updatedList) {
+        try {
+          await saveCustomerDoc(item);
+        } catch (_) {}
+      }
+    } catch (_) {} finally {
+      setTimeout(() => setIsBuffering(false), 450);
+    }
+  };
+
+  const handleDeleteEmployee = (username: string) => {
+    if (currentUser?.role !== 'admin') {
+      setStaffError('Only administrators can remove workforce members.');
+      return;
+    }
+    if (currentUser?.username === username) {
+      setStaffError('You cannot remove your own active operator account.');
+      return;
+    }
+    const updated = employees.filter(emp => emp.username !== username);
+    setEmployees(updated);
+    localStorage.setItem('mena_inc_employees_v3', JSON.stringify(updated));
   };
 
   // Mutators for Bank/Payment Accounts with Local and Cloud Storage integrations
@@ -302,6 +464,14 @@ export default function App() {
 
   const handleDeleteBankAccount = async (id: string) => {
     setIsBuffering(true);
+    const target = bankAccounts.find(item => item.id === id);
+    if (target) {
+      setDeletedHistory({
+        type: 'bank',
+        data: target,
+        timestamp: Date.now()
+      });
+    }
     const updated = bankAccounts.filter(item => item.id !== id);
     handleUpdateBankAccountsLocal(updated);
     try {
@@ -309,6 +479,102 @@ export default function App() {
       await deleteBankAccountDoc(id);
     } catch (_) {} finally {
       setTimeout(() => setIsBuffering(false), 400);
+    }
+  };
+
+  // Mutators for Business Expenses/Purchases Ledger
+  const handleUpdatePurchases = async (newPurchases: Purchase[]) => {
+    setIsBuffering(true);
+    setPurchases(newPurchases);
+    localStorage.setItem(LOCAL_STORAGE_PURCHASES_KEY, JSON.stringify(newPurchases));
+    try {
+      const { savePurchaseDoc, deletePurchaseDoc } = await import('./lib/dbService');
+      
+      const oldIds = new Set<string>(purchases.map(p => p.id));
+      const newIds = new Set<string>(newPurchases.map(p => p.id));
+      
+      // Delete removed purchases from database
+      for (const oldId of oldIds) {
+        if (!newIds.has(oldId)) {
+          try {
+            await deletePurchaseDoc(oldId);
+          } catch (_) {}
+        }
+      }
+      
+      // Save added/changed purchases to database
+      const oldMap = new Map(purchases.map(p => [p.id, p]));
+      for (const p of newPurchases) {
+        const oldP = oldMap.get(p.id);
+        if (!oldP || JSON.stringify(oldP) !== JSON.stringify(p)) {
+          try {
+            await savePurchaseDoc(p);
+          } catch (_) {}
+        }
+      }
+    } catch (_) {} finally {
+      setTimeout(() => setIsBuffering(false), 400);
+    }
+  };
+
+  const handleUpdateCategories = async (newCategories: ExpenseCategory[]) => {
+    setIsBuffering(true);
+    setCategories(newCategories);
+    localStorage.setItem(LOCAL_STORAGE_CATEGORIES_KEY, JSON.stringify(newCategories));
+    try {
+      const { saveExpenseCategoryDoc } = await import('./lib/dbService');
+      for (const cat of newCategories) {
+        try {
+          await saveExpenseCategoryDoc(cat);
+        } catch (_) {}
+      }
+    } catch (_) {} finally {
+      setTimeout(() => setIsBuffering(false), 400);
+    }
+  };
+
+  // Safe undo handler restoring offline and online collections
+  const handleUndoDelete = async () => {
+    if (!deletedHistory) return;
+    setIsBuffering(true);
+    const { type, data } = deletedHistory;
+    setDeletedHistory(null);
+
+    try {
+      if (type === 'customer') {
+        const item = data as Customer;
+        const updated = [item, ...customers];
+        handleUpdateCustomers(updated);
+        const { saveCustomerDoc } = await import('./lib/dbService');
+        await saveCustomerDoc(item);
+      } else if (type === 'bulk-customers') {
+        const items = data as Customer[];
+        const updated = [...items, ...customers];
+        handleUpdateCustomers(updated);
+        const { saveCustomerDoc } = await import('./lib/dbService');
+        for (const item of items) {
+          await saveCustomerDoc(item);
+        }
+      } else if (type === 'bank') {
+        const item = data as BankAccount;
+        const updated = [...bankAccounts, item];
+        handleUpdateBankAccountsLocal(updated);
+        const { saveBankAccountDoc } = await import('./lib/dbService');
+        await saveBankAccountDoc(item);
+      } else if (type === 'stock') {
+        const items = data as PaperStock[];
+        const updated = [...paperStocks, ...items];
+        setPaperStocks(updated);
+        localStorage.setItem(LOCAL_STORAGE_STOCKS_KEY, JSON.stringify(updated));
+        const { savePaperStockDoc } = await import('./lib/dbService');
+        for (const stock of items) {
+          await savePaperStockDoc(stock);
+        }
+      }
+    } catch (e) {
+      console.error("Undo action failed", e);
+    } finally {
+      setTimeout(() => setIsBuffering(false), 500);
     }
   };
 
@@ -456,6 +722,14 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-[#E2E8F0] flex flex-col font-sans select-none antialiased" style={{ lineSpacing: "1.15" }}>
 
+      {/* Telegram-style Connection Status indicator bar */}
+      {!isOnline && (
+        <div className="bg-[#C53030] text-white text-center py-1 px-3 text-xs font-mono font-bold flex items-center justify-center gap-2 animate-pulse sticky top-0 z-50 shadow-md">
+          <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
+          <span>CONNECTING TO DIRECT DIGITAL LEDGER... (WORKING OFFLINE)</span>
+        </div>
+      )}
+
       {/* Top Executive Header */}
       <header className="bg-[#121212] border-b border-[#262626] sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -470,7 +744,7 @@ export default function App() {
                 <h1 className="text-base font-bold text-white tracking-tight font-sans">
                   MENA INC. <span className="font-medium text-[#ee317b] font-mono text-xs">V2.1</span>
                 </h1>
-                <p className="text-[10px] text-gray-500 font-mono tracking-wider uppercase">Advanced Database &amp; Inventory System</p>
+                <p className="text-[10px] text-gray-500 font-mono tracking-wider uppercase hidden sm:block">Advanced Database &amp; Inventory System</p>
               </div>
             </div>
 
@@ -532,6 +806,25 @@ export default function App() {
 
               <button
                 type="button"
+                onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+                className="text-xs text-gray-300 hover:text-[#ee317b] bg-[#181818] hover:bg-[#202020] border border-[#262626] p-1.5 rounded-none transition-all cursor-pointer flex items-center gap-1.5"
+                title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+              >
+                {theme === 'dark' ? (
+                  <>
+                    <Sun className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="hidden md:inline">Light</span>
+                  </>
+                ) : (
+                  <>
+                    <Moon className="w-3.5 h-3.5 text-sky-450" />
+                    <span className="hidden md:inline">Dark</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
                 onClick={handleLogout}
                 className="text-xs text-gray-400 hover:text-[#ee317b] bg-[#181818] hover:bg-[#202020] border border-[#262626] p-1.5 rounded-none transition-all cursor-pointer"
                 title="Log Out Operator"
@@ -585,21 +878,36 @@ export default function App() {
               </span>
             </button>
 
-            {/* Tab 3: Business Performance Summary */}
-            {currentUser?.role === 'admin' && (
-              <button
-                id="tab-perf-trigger"
-                onClick={() => setActiveTab('performance')}
-                className={`py-4 px-1 border-b-2 font-medium font-sans text-sm flex items-center gap-2 cursor-pointer transition-colors rounded-none ${
-                  activeTab === 'performance'
-                    ? 'border-[#ee317b] text-[#ee317b]'
-                    : 'border-transparent text-gray-400 hover:text-white hover:border-[#ee317b]/30'
-                }`}
-              >
-                <TrendingUp className="w-4 h-4" />
-                Business Performance Summary
-              </button>
-            )}
+            {/* Tab 3: Purchased Items & Services */}
+            <button
+              id="tab-purchases-trigger"
+              onClick={() => setActiveTab('purchases')}
+              className={`py-4 px-1 border-b-2 font-medium font-sans text-sm flex items-center gap-2 cursor-pointer transition-colors rounded-none ${
+                activeTab === 'purchases'
+                  ? 'border-[#ee317b] text-[#ee317b]'
+                  : 'border-transparent text-gray-400 hover:text-white hover:border-[#ee317b]/30'
+              }`}
+            >
+              <Database className="w-4 h-4" />
+              Purchases &amp; Expenses Ledger
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-none font-mono ${activeTab === 'purchases' ? 'bg-[#31111E] text-[#ee317b]' : 'bg-[#181818] text-gray-400'}`}>
+                {purchases.length}
+              </span>
+            </button>
+
+            {/* Tab 4: Business Performance Summary */}
+            <button
+              id="tab-perf-trigger"
+              onClick={() => setActiveTab('performance')}
+              className={`py-4 px-1 border-b-2 font-medium font-sans text-sm flex items-center gap-2 cursor-pointer transition-colors rounded-none ${
+                activeTab === 'performance'
+                  ? 'border-[#ee317b] text-[#ee317b]'
+                  : 'border-transparent text-gray-400 hover:text-white hover:border-[#ee317b]/30'
+              }`}
+            >
+              <TrendingUp className="w-4 h-4" />
+              Business Performance Summary
+            </button>
 
           </nav>
         </div>
@@ -616,13 +924,16 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'performance' && currentUser?.role === 'admin' && (
+          {activeTab === 'performance' && (
             <PerformanceTab
               customers={customers}
               bankAccounts={bankAccounts}
               onAddBankAccount={handleAddBankAccount}
               onUpdateBankAccount={handleEditBankAccount}
               onDeleteBankAccount={handleDeleteBankAccount}
+              purchases={purchases}
+              categories={categories}
+              paperStocks={paperStocks}
             />
           )}
 
@@ -634,8 +945,20 @@ export default function App() {
               onAddCustomer={handleAddCustomer}
               onUpdateCustomer={handleEditCustomer}
               onDeleteCustomer={handleDeleteCustomer}
+              onBulkUpdateCustomers={handleBulkUpdateCustomers}
               currentUser={currentUser}
               employees={employees}
+            />
+          )}
+
+          {activeTab === 'purchases' && (
+            <PurchasesTab
+              purchases={purchases}
+              onUpdatePurchases={handleUpdatePurchases}
+              categories={categories}
+              onUpdateCategories={handleUpdateCategories}
+              bankAccounts={bankAccounts}
+              currentUser={currentUser}
             />
           )}
         </div>
@@ -648,12 +971,67 @@ export default function App() {
           <p>© 2026 Mena Inc. All Rights Reserved. Fully integrated v2 paper ledger engine.</p>
           <div className="flex gap-4">
             <span className="flex items-center gap-1">
-              <FileSpreadsheet className="w-3.5 h-3.5 text-[#ee317b]" />
-              Formula-driven Cloud Sync (V2.1)
+              <Database className="w-3.5 h-3.5 text-[#ee317b]" />
+              Secure CRM &amp; Inventory Engine (V2.1)
             </span>
           </div>
         </div>
       </footer>
+
+      {/* 📦 UNDO TRANSACTION TOAST POPUP */}
+      <AnimatePresence>
+        {deletedHistory && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            className="fixed bottom-6 right-6 z-50 bg-[#121212] border border-[#ee317b] text-white p-4 shadow-2xl flex flex-col gap-3 max-w-sm w-full font-mono text-xs select-none"
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="font-bold text-[#ee317b] tracking-wider uppercase text-[11px]">
+                  {deletedHistory.type === 'bulk-customers' ? 'Multiple Orders Disposed' : 'Ledger Record Disposed'}
+                </p>
+                <p className="text-gray-400 text-[10px] mt-1">
+                  {deletedHistory.type === 'customer' && `Deleted "${deletedHistory.data.clientName}"`}
+                  {deletedHistory.type === 'bulk-customers' && `Deleted ${deletedHistory.data.length} client logs`}
+                  {deletedHistory.type === 'bank' && `Deleted account "${deletedHistory.data.name}"`}
+                  {deletedHistory.type === 'stock' && `Deleted ${deletedHistory.data.length} stock items`}
+                </p>
+              </div>
+              <span className="text-[10px] bg-[#ee317b]/10 text-[#ee317b] border border-[#ee317b]/25 px-1.5 py-0.5 font-bold">
+                {undoCountdown}s
+              </span>
+            </div>
+
+            <div className="h-1 bg-[#262626] w-full overflow-hidden">
+              <motion.div 
+                initial={{ width: '100%' }}
+                animate={{ width: '0%' }}
+                transition={{ duration: 30, ease: 'linear' }}
+                className="h-full bg-[#ee317b]"
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-2 mt-1">
+              <button
+                type="button"
+                onClick={() => setDeletedHistory(null)}
+                className="text-gray-400 hover:text-white uppercase tracking-wider text-[10px] bg-[#181818] border border-[#262626] px-2.5 py-1.5 cursor-pointer transition-colors"
+              >
+                Dismiss
+              </button>
+              <button
+                type="button"
+                onClick={handleUndoDelete}
+                className="bg-[#71b536] hover:bg-white text-black font-bold uppercase tracking-widest text-[10px] px-4 py-1.5 flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                ↩️ Undo Delete
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* 👤 STAFF SETTINGS MODAL */}
       <AnimatePresence>
@@ -763,9 +1141,9 @@ export default function App() {
                       <div key={emp.username} className="px-4 py-3 flex items-center justify-between text-xs font-mono">
                         <div>
                           <span className="font-semibold text-white font-sans">{emp.name}</span>
-                          <span className="text-[10px] text-gray-500 block">Username ID: <span className="text-gray-300">{emp.username}</span> | Password: <span className="text-gray-400">{emp.password}</span></span>
+                          <span className="text-[10px] text-gray-550 block">Username ID: <span className="text-gray-300">{emp.username}</span> | Passkey: <span className="text-gray-400">{emp.password}</span></span>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-3">
                           <span className={`px-2 py-0.5 text-[9px] uppercase font-bold ${
                             emp.role === 'admin' 
                               ? 'bg-[#31111E] text-[#ee317b] border border-[#ee317b]/20' 
@@ -773,6 +1151,20 @@ export default function App() {
                           }`}>
                             {emp.role}
                           </span>
+                          {currentUser && currentUser.role === 'admin' && currentUser.username !== emp.username && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm(`Are you sure you want to remove operator "${emp.name}"?`)) {
+                                  handleDeleteEmployee(emp.username);
+                                }
+                              }}
+                              className="p-1 text-gray-500 hover:text-red-400 border border-transparent hover:border-[#F87171]/20 rounded-none cursor-pointer transition-colors"
+                              title="Delete worker credentials"
+                            >
+                              <span className="text-red-500 hover:text-red-400 font-bold font-mono">✕</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}

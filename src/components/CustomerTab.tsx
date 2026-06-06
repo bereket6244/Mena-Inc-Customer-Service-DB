@@ -15,8 +15,12 @@ import {
   Layers, 
   Sparkles,
   Lock,
-  Copy
+  Copy,
+  CheckSquare,
+  Printer,
+  Download
 } from 'lucide-react';
+import { exportCustomersCSV } from '../utils/csvExport';
 import { 
   Customer, 
   PaperStock, 
@@ -36,6 +40,7 @@ interface CustomerTabProps {
   onAddCustomer: (customer: Customer) => void;
   onUpdateCustomer: (customer: Customer) => void;
   onDeleteCustomer: (id: string) => void;
+  onBulkUpdateCustomers: (updatedList: Customer[]) => void;
   currentUser: EmployeeUser | null;
   employees: EmployeeUser[];
 }
@@ -47,6 +52,7 @@ export default function CustomerTab({
   onAddCustomer, 
   onUpdateCustomer, 
   onDeleteCustomer,
+  onBulkUpdateCustomers,
   currentUser,
   employees
 }: CustomerTabProps) {
@@ -57,6 +63,15 @@ export default function CustomerTab({
   const [filterAgent, setFilterAgent] = useState<string>('All');
   const [filterSource, setFilterSource] = useState<string>('All');
   const [filterPayment, setFilterPayment] = useState<string>('All'); // 'All', 'Debt', 'Paid'
+  const [filterCompletion, setFilterCompletion] = useState<string>('All'); // 'All', 'Completed', 'Pending', 'Incomplete'
+  const [filterReceipt, setFilterReceipt] = useState<string>('All'); // 'All', 'NeedsReceipt'
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState<string[]>([]);
+  const [showProformaModal, setShowProformaModal] = useState(false);
+  const [isStandaloneProformaMode, setIsStandaloneProformaMode] = useState(false);
+  const [standaloneProformaItems, setStandaloneProformaItems] = useState<Array<{ id: string; productType: string; quantity: number; unitPrice: number; advancePayment: number; }>>([]);
+
+  // Proforma VAT State variables inside modal scope integration
+  const [proformaIncludeVat, setProformaIncludeVat] = useState(true);
 
   const isAdmin = currentUser?.role === 'admin';
 
@@ -70,7 +85,7 @@ export default function CustomerTab({
   const [clientName, setClientName] = useState('');
   const [phone, setPhone] = useState('');
   const [acquisitionSource, setAcquisitionSource] = useState<Customer['acquisitionSource']>('Repeat');
-  const [orderTakenBy, setOrderTakenBy] = useState<Customer['orderTakenBy']>('Bereket');
+   const [orderTakenBy, setOrderTakenBy] = useState<Customer['orderTakenBy']>(currentUser?.name || 'Bereket');
   const [productType, setProductType] = useState(PRODUCT_TYPES[0]);
   const [quantity, setQuantity] = useState<number>(100);
   const [unitPrice, setUnitPrice] = useState<number>(85);
@@ -96,7 +111,7 @@ export default function CustomerTab({
   const [newChannelInput, setNewChannelInput] = useState('');
   const [isAddingChannel, setIsAddingChannel] = useState(false);
 
-  // Google Sheets alignment states
+  // Secure ledger data alignment states
   const [advancePaymentDate, setAdvancePaymentDate] = useState<string>('');
   const [bankRemainingId, setBankRemainingId] = useState<string>('');
   const [incompletionReason, setIncompletionReason] = useState<string>('');
@@ -105,6 +120,7 @@ export default function CustomerTab({
 
   // Non-blocking custom delete tracking ID
   const [deletingCustomerId, setDeletingCustomerId] = useState<string | null>(null);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   
   const [paperType1, setPaperType1] = useState(paperStocks[0]?.name || 'Big flower');
   const [amount1, setAmount1] = useState<string>('0');
@@ -134,7 +150,7 @@ export default function CustomerTab({
     setClientName('');
     setPhone('');
     setAcquisitionSource('Repeat');
-    setOrderTakenBy('Bereket');
+    setOrderTakenBy(currentUser?.name || 'Bereket');
     setProductType(PRODUCT_TYPES[0]);
     setQuantity(100);
     setUnitPrice(85);
@@ -154,9 +170,7 @@ export default function CustomerTab({
     setAjabiPaper('None');
     setAmount9('0');
     
-    const d = new Date();
-    d.setDate(d.getDate() + 10);
-    setDeliveryDate(d.toISOString().split('T')[0]);
+    setDeliveryDate('');
 
     // Google Sheets custom alignment fields
     const todayStr = new Date().toISOString().split('T')[0];
@@ -354,10 +368,9 @@ export default function CustomerTab({
     setProductType('Pocket Card');
     setQuantity(0);
     setUnitPrice(85);
-    setAdvancePayment(0);
     setQtyInput('0');
     setPriceInput('85');
-    setAdvanceInput('0');
+    setDeliveryDate('');
     
     // Reset standard layout deductions
     setPaperType1(paperStocks[0]?.name || 'Big flower');
@@ -385,11 +398,40 @@ export default function CustomerTab({
   const computedFullPayment = quantity * unitPrice;
   const computedRemainingBalance = computedFullPayment - advancePayment;
 
+  // Bulk Selection and Update Handlers
+  const handleBulkComplete = () => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const updatedList = customers.map(c => {
+      if (selectedCustomerIds.includes(c.id)) {
+        return {
+          ...c,
+          deliveryDate: c.deliveryDate || todayStr,
+          bankRemainingId: c.bankRemainingId || 'b1'
+        };
+      }
+      return c;
+    });
+    onBulkUpdateCustomers(updatedList);
+    setSelectedCustomerIds([]);
+    alert(`Successfully completed ${selectedCustomerIds.length} orders.`);
+  };
+
+  const handleBulkDelete = () => {
+    setShowBulkDeleteConfirm(true);
+  };
+
+  const executeBulkDeleteConfirmed = () => {
+    const remaining = customers.filter(c => !selectedCustomerIds.includes(c.id));
+    onBulkUpdateCustomers(remaining);
+    setSelectedCustomerIds([]);
+    setShowBulkDeleteConfirm(false);
+  };
+
   // Filter application
   const filteredCustomers = customers.filter(c => {
     const matchesSearch = 
       c.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.phone.includes(searchQuery) ||
+      (c.phone && c.phone.includes(searchQuery)) ||
       c.productType.toLowerCase().includes(searchQuery.toLowerCase());
     
     const matchesAgent = filterAgent === 'All' || c.orderTakenBy === filterAgent;
@@ -404,29 +446,44 @@ export default function CustomerTab({
       matchesPayment = remaining <= 0;
     }
 
-    return matchesSearch && matchesAgent && matchesSource && matchesPayment;
+    const isCompleted = !!(c.deliveryDate && c.bankRemainingId);
+    let matchesCompletion = true;
+    if (filterCompletion === 'Completed') {
+      matchesCompletion = isCompleted;
+    } else if (filterCompletion === 'Pending') {
+      matchesCompletion = !isCompleted && !c.incompletionReason;
+    } else if (filterCompletion === 'Incomplete') {
+      matchesCompletion = !isCompleted && !!c.incompletionReason;
+    }
+
+    let matchesReceipt = true;
+    if (filterReceipt === 'NeedsReceipt') {
+      matchesReceipt = !!c.isVatAdded;
+    }
+
+    return matchesSearch && matchesAgent && matchesSource && matchesPayment && matchesCompletion && matchesReceipt;
   });
+
+  const proformaItemsToRender = isStandaloneProformaMode 
+    ? standaloneProformaItems 
+    : customers.filter(c => selectedCustomerIds.includes(c.id)).map(c => ({
+        id: c.id,
+        clientName: c.clientName,
+        productType: c.productType,
+        quantity: c.quantity,
+        unitPrice: c.unitPrice,
+        advancePayment: c.advancePayment || 0
+      }));
 
   return (
     <div className="space-y-6" id="customers-tab-pnl">
       
       {/* Search and Filters Strip - Optimized for Mobile Screen limits */}
-      <div className="bg-[#121212] border border-[#262626] rounded-none p-4 shadow-none flex flex-col xl:flex-row xl:items-center justify-between gap-4 select-none">
-        <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 flex-1">
-          {/* Search bar */}
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-500" />
-            <input
-              type="text"
-              placeholder="Search clients by name, phone or product..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-1.5 text-sm bg-[#181818] text-white hover:bg-[#1E1E1E] focus:bg-[#1E1E1E] border border-[#262626] rounded-none outline-none focus:border-[#ee317b] transition-all font-sans"
-            />
-          </div>
-
-          {/* Responsive columns grid so filters stack neatly on small screens */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono w-full md:w-auto">
+      <div className="bg-[#121212] border border-[#262626] rounded-none p-4 shadow-none flex flex-col gap-4 select-none">
+        
+        {/* Row 1: Selectors and buttons */}
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2 font-mono w-full lg:w-auto text-xs">
             {/* Filter Agent */}
             <select
               value={filterAgent}
@@ -446,7 +503,7 @@ export default function CustomerTab({
               className="px-3 py-1.5 bg-[#181818] border border-[#262626] text-gray-300 rounded-none text-xs outline-none cursor-pointer focus:border-[#ee317b]"
             >
               <option value="All">All Leads</option>
-              {ACQUISITION_SOURCES.map(source => <option key={source} value={source}>{source}</option>)}
+              {acquisitionChannels.map(source => <option key={source} value={source}>{source}</option>)}
             </select>
 
             {/* Filter Debt Status */}
@@ -459,41 +516,181 @@ export default function CustomerTab({
               <option value="Debt">Outstanding Debt</option>
               <option value="Paid">Paid in Full</option>
             </select>
+
+            {/* Filter Completion Status */}
+            <select
+              value={filterCompletion}
+              onChange={(e) => setFilterCompletion(e.target.value)}
+              className="px-3 py-1.5 bg-[#181818] border border-[#262626] text-gray-300 rounded-none text-xs outline-none cursor-pointer focus:border-[#ee317b]"
+            >
+              <option value="All">All Job Statuses</option>
+              <option value="Completed">Completed Only</option>
+              <option value="Pending">Pending Only</option>
+              <option value="Incomplete">Incomplete / Problematic</option>
+            </select>
+
+            {/* Filter Receipt Needed */}
+            <select
+              value={filterReceipt}
+              onChange={(e) => setFilterReceipt(e.target.value)}
+              className="px-3 py-1.5 bg-[#181818] border border-[#262626] text-gray-300 rounded-none text-xs outline-none cursor-pointer focus:border-[#ee317b]"
+            >
+              <option value="All">All Receipts</option>
+              <option value="NeedsReceipt">Needs Receipts (VAT)</option>
+            </select>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:justify-end">
+            {/* Select/Deselect All Toggle button */}
+            <button
+              type="button"
+              onClick={() => {
+                const allFilteredIds = filteredCustomers.map(c => c.id);
+                const allSelected = allFilteredIds.length > 0 && allFilteredIds.every(id => selectedCustomerIds.includes(id));
+                if (allSelected) {
+                  // Deselect all filtered
+                  setSelectedCustomerIds(prev => prev.filter(id => !allFilteredIds.includes(id)));
+                } else {
+                  // Select all filtered
+                  setSelectedCustomerIds(prev => {
+                    const next = [...prev];
+                    allFilteredIds.forEach(id => {
+                      if (!next.includes(id)) next.push(id);
+                    });
+                    return next;
+                  });
+                }
+              }}
+              className="text-xs font-mono text-gray-300 hover:text-white bg-[#181818] hover:bg-[#262626] border border-[#262626] px-3.5 py-1.5 flex items-center justify-center gap-1.5 cursor-pointer rounded-none transition-colors"
+              title="Toggle selection of all filtered items"
+            >
+              <CheckSquare className="w-3.5 h-3.5 text-[#ee317b]" />
+              {filteredCustomers.length > 0 && filteredCustomers.every(c => selectedCustomerIds.includes(c.id)) 
+                ? "Deselect All" 
+                : `Select All (${filteredCustomers.length})`}
+            </button>
+
+            {/* Grid vs Cards Switcher */}
+            <div className="border border-[#262626] rounded-none p-0.5 flex bg-[#181818] justify-center">
+              <button
+                type="button"
+                onClick={() => setLayoutMode('grid')}
+                className={`p-1.5 rounded-none cursor-pointer transition-colors ${layoutMode === 'grid' ? 'bg-[#ee317b] text-black font-semibold' : 'text-gray-400 hover:text-white'}`}
+                title="Tabular Grid View (Default)"
+              >
+                <TableIcon className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setLayoutMode('cards')}
+                className={`p-1.5 rounded-none cursor-pointer transition-colors ${layoutMode === 'cards' ? 'bg-[#ee317b] text-black font-semibold' : 'text-gray-400 hover:text-white'}`}
+                title="Responsive Cards View"
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                exportCustomersCSV(customers, (id) => bankAccounts.find(b => b.id === id)?.name || 'CBE / System Default');
+              }}
+              className="text-xs font-mono font-bold text-[#ee317b] hover:text-white hover:bg-[#ee317b]/10 border border-[#ee317b]/30 bg-[#ee317b]/5 rounded-none px-4 py-2 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              title="Download currently loaded customer & order ledger as a CSV file"
+            >
+              <Download className="w-4 h-4" />
+              Export Orders CSV
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setIsStandaloneProformaMode(true);
+                setStandaloneProformaItems([
+                  {
+                    id: 'temp-1',
+                    productType: 'Premium Double Ring Notebook A4 (70 gsm)',
+                    quantity: 1000,
+                    unitPrice: 95.00,
+                    advancePayment: 25000
+                  }
+                ]);
+                setShowProformaModal(true);
+              }}
+              className="text-xs font-mono font-bold text-gray-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-none px-4 py-2 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Printer className="w-4 h-4 text-[#ee317b]" />
+              Standalone Proforma Tool
+            </button>
+
+            <button
+              type="button"
+              onClick={handleOpenCreate}
+              className="text-xs font-mono font-bold text-white bg-[#ee317b] hover:bg-[#d61e63] rounded-none px-4 py-2 flex items-center justify-center gap-1.5 shadow-none transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              Create Customer Order
+            </button>
           </div>
         </div>
 
-        {/* Layout Switcher & Action */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:justify-end select-none">
-          {/* Grid vs Cards Switcher */}
-          <div className="border border-[#262626] rounded-none p-0.5 flex bg-[#181818] justify-center">
-            <button
-              type="button"
-              onClick={() => setLayoutMode('grid')}
-              className={`p-1.5 rounded-none cursor-pointer transition-colors ${layoutMode === 'grid' ? 'bg-[#ee317b] text-black font-semibold' : 'text-gray-400 hover:text-white'}`}
-              title="Wide excel Spreadsheet View (Default)"
-            >
-              <TableIcon className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setLayoutMode('cards')}
-              className={`p-1.5 rounded-none cursor-pointer transition-colors ${layoutMode === 'cards' ? 'bg-[#ee317b] text-black font-semibold' : 'text-gray-400 hover:text-white'}`}
-              title="Responsive Cards View"
-            >
-              <LayoutGrid className="w-4 h-4" />
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleOpenCreate}
-            className="text-xs font-mono font-bold text-white bg-[#ee317b] hover:bg-[#d61e63] rounded-none px-4 py-2 flex items-center justify-center gap-1.5 shadow-none transition-colors cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            Create Customer Order
-          </button>
+        {/* Row 2: Search Bar Below Dropdowns & Settings */}
+        <div className="relative">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-500" />
+          <input
+            type="text"
+            placeholder="Search clients by name, phone, product type or lead source..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 text-sm bg-[#181818] text-white hover:bg-[#1E1E1E] focus:bg-[#1E1E1E] border border-[#262626] rounded-none outline-none focus:border-[#ee317b] transition-all font-sans"
+          />
         </div>
+
       </div>
+
+      {/* Bulk Executive Actions Strip */}
+      {selectedCustomerIds.length > 0 && (
+        <div className="bg-[#181818] border border-blue-900/45 p-3 rounded-none flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono animate-fade-in relative z-30">
+          <div className="flex items-center gap-2 text-blue-400">
+            <CheckSquare className="w-4 h-4 text-[#ee317b]" />
+            <span>Selected <strong className="text-white bg-blue-950 px-1.5 py-0.5 border border-blue-900">{selectedCustomerIds.length}</strong> {selectedCustomerIds.length === 1 ? 'order file' : 'order files'}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleBulkComplete}
+              className="px-3 py-1.5 bg-[#112918] hover:bg-[#1b4325] border border-green-800 text-[#71b536] font-bold cursor-pointer transition-colors flex items-center gap-1 uppercase text-[10px] tracking-wider"
+            >
+              ✓ Complete Selected
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsStandaloneProformaMode(false);
+                setShowProformaModal(true);
+              }}
+              className="px-3 py-1.5 bg-[#31111E] hover:bg-[#4d1c31] border border-[#ee317b]/30 text-[#ee317b] font-bold cursor-pointer transition-colors flex items-center gap-1 uppercase text-[10px] tracking-wider"
+            >
+              📄 Export Proforma
+            </button>
+            <button
+              type="button"
+              onClick={handleBulkDelete}
+              className="px-3 py-1.5 bg-[#421A1D]/80 hover:bg-red-900/35 border border-red-900/40 text-red-400 font-bold cursor-pointer transition-colors flex items-center gap-1 uppercase text-[10px] tracking-wider animate-fadeIn"
+              title="Wipe out highlighted selections from terminal ledger"
+            >
+              🗑️ Delete Selected
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedCustomerIds([])}
+              className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-gray-350 border border-zinc-700 cursor-pointer transition-colors uppercase text-[10px] tracking-wider"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* RENDER MODE: EXCEL SPREADSHEET HORIZONTAL GRID (DEFAULT) */}
       {layoutMode === 'grid' ? (
@@ -503,6 +700,21 @@ export default function CustomerTab({
               <thead>
                 <tr className="bg-[#181818] border-b border-[#262626] text-gray-400 font-mono tracking-wider uppercase text-center">
                   <th className="py-2.5 px-3 border-r border-[#262626] bg-[#1C1C1C] sticky left-0 z-20 font-bold text-[#ee317b] font-mono text-center w-8 text-xs">Index</th>
+                  <th className="py-2.5 px-2 border-r border-[#262626] font-bold text-center w-10 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={filteredCustomers.length > 0 && selectedCustomerIds.length === filteredCustomers.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedCustomerIds(filteredCustomers.map(c => c.id));
+                        } else {
+                          setSelectedCustomerIds([]);
+                        }
+                      }}
+                      className="accent-[#ee317b] cursor-pointer"
+                      title="Select/Deselect all filtered rows"
+                    />
+                  </th>
                   <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-left">Client Type</th>
                   <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-left">Client Name</th>
                   <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-left">Phone / Contact</th>
@@ -515,7 +727,7 @@ export default function CustomerTab({
                   <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-center bg-[#1c1c1c]/20">Advance Date</th>
                   <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-left">Deposit Account (Advance)</th>
                   
-                  {/* Ledger formulas Paper Stocks */}
+                  {/* Ledger Paper Stocks */}
                   <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] bg-[#31111E]/20 text-left">Paper 1</th>
                   <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-right bg-[#31111E]/20">Amount 1</th>
                   <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] bg-[#31111E]/20 text-left">Paper 2</th>
@@ -529,7 +741,7 @@ export default function CustomerTab({
                   <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] bg-[#112233]/40 text-left">Ajabi Paper</th>
                   <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-right bg-[#112233]/40">Amt /9</th>
                   
-                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-right">Remaining (V)</th>
+                  <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-right">Remaining Balance</th>
                   <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-center bg-[#31111E]/5">Final Payment Date</th>
                   <th className="py-2.5 px-3 font-semibold text-[#ee317b] border-r border-[#262626] text-right bg-[#31111E]/10">Full (ETB)</th>
                   <th className="py-2.5 px-3 font-semibold text-gray-300 border-r border-[#262626] text-left">Remaining Bank</th>
@@ -542,11 +754,42 @@ export default function CustomerTab({
                 {filteredCustomers.map((c, index) => {
                   const fullVal = c.quantity * c.unitPrice;
                   const remainingVal = fullVal - c.advancePayment;
+                  const isCompleted = !!(c.deliveryDate && c.bankRemainingId);
+                  
+                  const isSelected = selectedCustomerIds.includes(c.id);
                   
                   return (
-                    <tr key={c.id} className="hover:bg-[#1a1a1a] transition-colors">
+                    <tr 
+                      key={c.id} 
+                      className={`transition-colors ${
+                        isCompleted 
+                          ? 'completed-order-row' 
+                          : c.incompletionReason 
+                            ? 'incomplete-order-row' 
+                            : isSelected
+                              ? 'bg-sky-950/25 border-l-2 border-sky-500'
+                              : 'hover:bg-[#1a1a1a]'
+                      }`}
+                    >
                       {/* Grid Row Index */}
                       <td className="py-2 px-1 text-center font-mono text-gray-500 border-r border-[#262626] bg-[#181818] sticky left-0 z-10">{index + 2}</td>
+                      
+                      {/* Grid Row Checkbox Column */}
+                      <td className="py-2 px-2 border-r border-[#262626] text-center bg-[#151515]/45">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedCustomerIds(prev => [...prev, c.id]);
+                            } else {
+                              setSelectedCustomerIds(prev => prev.filter(id => id !== c.id));
+                            }
+                          }}
+                          className="accent-[#ee317b] cursor-pointer"
+                          title="Select order"
+                        />
+                      </td>
                       
                       {/* Client Type */}
                       <td className="py-2 px-3 border-r border-[#262626] font-mono">
@@ -638,19 +881,37 @@ export default function CustomerTab({
                       </td>
                       
                       {/* Final Payment Date */}
-                      <td className="py-2.5 px-3 border-r border-[#262626] font-mono text-center whitespace-nowrap bg-[#1c1c1c]/30">
-                        <input
-                          type="date"
-                          value={c.deliveryDate || ''}
-                          onChange={(e) => {
-                            onUpdateCustomer({
-                              ...c,
-                              deliveryDate: e.target.value
-                            });
-                          }}
-                          className="bg-[#121212] text-xs text-[#ee317b] hover:text-[#ff4e91] border border-[#262626] hover:border-[#ee317b] focus:border-[#ee317b] outline-none px-2 py-1 font-mono cursor-pointer rounded-none"
-                          title="Change Final Payment Date directly"
-                        />
+                      <td className="py-2.5 px-3 border-r border-[#262626] font-mono whitespace-nowrap bg-[#1c1c1c]/30 text-center">
+                        <div className="inline-flex items-center justify-center gap-1">
+                          <input
+                            type="date"
+                            value={c.deliveryDate || ''}
+                            onChange={(e) => {
+                              onUpdateCustomer({
+                                ...c,
+                                deliveryDate: e.target.value
+                              });
+                            }}
+                            className="bg-[#121212] text-xs text-[#ee317b] hover:text-[#ff4e91] border border-[#262626] hover:border-[#ee317b] focus:border-[#ee317b] outline-none px-2 py-1 font-mono cursor-pointer rounded-none"
+                            title="Change Final Payment Date directly"
+                          />
+                          {c.deliveryDate && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateCustomer({
+                                  ...c,
+                                  deliveryDate: '',
+                                  bankRemainingId: '' // Clearing date resets the bank complete state too
+                                });
+                              }}
+                              className="text-red-500 hover:text-red-400 font-extrabold px-1.5 py-0.5 cursor-pointer text-xs"
+                              title="Clear Final Payment Date"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
                       </td>
                       
                       {/* Full (ETB) */}
@@ -713,18 +974,14 @@ export default function CustomerTab({
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
-                          {isAdmin ? (
-                            <button
-                              type="button"
-                              onClick={() => setDeletingCustomerId(c.id)}
-                              className="text-gray-500 hover:text-[#F87171] hover:bg-[#262626] p-1.5 rounded-none transition-colors cursor-pointer"
-                              title="Delete Record"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          ) : (
-                            <Lock className="w-3.5 h-3.5 text-gray-700" title="Deletes require administrator privileges" />
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => setDeletingCustomerId(c.id)}
+                            className="text-gray-500 hover:text-[#F87171] hover:bg-[#262626] p-1.5 rounded-none transition-colors cursor-pointer"
+                            title="Delete Record"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -747,29 +1004,60 @@ export default function CustomerTab({
           {filteredCustomers.map((c) => {
             const fullVal = c.quantity * c.unitPrice;
             const remainingVal = fullVal - c.advancePayment;
+            const isCompleted = !!(c.deliveryDate && c.bankRemainingId);
+            const isSelected = selectedCustomerIds.includes(c.id);
             
             return (
               <div 
                 key={c.id} 
-                className="bg-[#121212] border border-[#262626] rounded-none p-5 shadow-none flex flex-col justify-between hover:border-[#ee317b] transition-all duration-300 text-gray-300"
+                className={`border rounded-none p-5 shadow-none flex flex-col justify-between transition-all duration-300 text-gray-300 ${
+                  isCompleted 
+                    ? 'bg-[#112918]/25 border-green-800/60 shadow-[inset_0_1px_0_0_rgba(52,211,153,0.15)] text-green-300' 
+                    : c.incompletionReason
+                      ? 'bg-[#2E181D]/60 border-red-900/60 shadow-[inset_0_1px_0_0_rgba(239,68,68,0.15)] text-red-300'
+                      : isSelected 
+                        ? 'bg-sky-950/20 border-sky-600/60 shadow-[inset_0_1px_0_0_rgba(56,189,248,0.15)] text-sky-300'
+                        : 'bg-[#121212] border-[#262626] hover:border-[#ee317b]'
+                }`}
               >
                 <div className="space-y-4">
                   
                   {/* Top Header Card */}
                   <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className={`text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-none border ${
-                          c.clientType === 'Organization' ? 'bg-[#2E181D] text-[#F87171] border-[#5D2D35]' : 'bg-[#181818] text-gray-300 border-[#262626]'
-                        }`}>
-                          {c.clientType}
-                        </span>
-                        
-                        <span className="text-[10px] bg-[#181818] text-gray-400 px-1.5 py-0.5 font-mono border border-[#262626] rounded-none">
-                          AGENT: {c.orderTakenBy.toUpperCase()}
-                        </span>
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedCustomerIds(prev => [...prev, c.id]);
+                          } else {
+                            setSelectedCustomerIds(prev => prev.filter(id => id !== c.id));
+                          }
+                        }}
+                        className="accent-[#ee317b] w-4.5 h-4.5 mt-0.5 cursor-pointer rounded-none border border-[#262626]"
+                        title="Select/Deselect order item"
+                      />
+                      <div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-none border ${
+                            c.clientType === 'Organization' ? 'bg-[#2E181D] text-[#F87171] border-[#5D2D35]' : 'bg-[#181818] text-gray-300 border-[#262626]'
+                          }`}>
+                            {c.clientType}
+                          </span>
+                          
+                          {isCompleted && (
+                            <span className="text-[10px] bg-green-900/40 text-green-300 px-2 py-0.5 font-mono border border-green-800/40 rounded-none font-bold uppercase">
+                              ✓ COMPLETED
+                            </span>
+                          )}
+
+                          <span className="text-[10px] bg-[#181818] text-gray-400 px-1.5 py-0.5 font-mono border border-[#262626] rounded-none">
+                            AGENT: {c.orderTakenBy.toUpperCase()}
+                          </span>
+                        </div>
+                        <h3 className="font-mono font-bold text-white mt-2.5 text-base">{c.clientName}</h3>
                       </div>
-                      <h3 className="font-mono font-bold text-white mt-2.5 text-base">{c.clientName}</h3>
                     </div>
                     
                     <span className="text-xs text-gray-500 font-mono">
@@ -785,7 +1073,7 @@ export default function CustomerTab({
                     </div>
                     <div className="flex items-center gap-2 font-mono text-xs">
                        <span className="text-[#ee317b] font-bold text-xs">📅</span>
-                       <span className="text-gray-400 flex items-center gap-1.5">
+                       <span className="text-gray-400 flex items-center gap-1.5 flex-wrap">
                          Final Payment Date:
                          <input
                            type="date"
@@ -798,6 +1086,22 @@ export default function CustomerTab({
                            }}
                            className="bg-[#161616] text-[#ee317b] hover:text-[#ff4e91] border border-[#262626] hover:border-[#ee317b] focus:border-[#ee317b] font-mono px-1.5 py-0.5 rounded-none outline-none cursor-pointer"
                          />
+                         {c.deliveryDate && (
+                           <button
+                             type="button"
+                             onClick={() => {
+                               onUpdateCustomer({
+                                 ...c,
+                                 deliveryDate: '',
+                                 bankRemainingId: '' // Reset completion status
+                               });
+                             }}
+                             className="text-red-500 hover:text-red-400 font-extrabold px-1.5 py-0.5 cursor-pointer text-xs"
+                             title="Clear Final Payment Date"
+                           >
+                             ✕
+                           </button>
+                         )}
                        </span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -938,20 +1242,13 @@ export default function CustomerTab({
                     <Edit3 className="w-3.5 h-3.5" />
                     Modify
                   </button>
-                  {isAdmin ? (
-                    <button
-                      type="button"
-                      onClick={() => setDeletingCustomerId(c.id)}
-                      className="text-xs text-gray-400 hover:text-[#F87171] font-mono hover:bg-[#262626] px-2.5 py-1.5 rounded-none transition-all cursor-pointer"
-                    >
-                      Remove
-                    </button>
-                  ) : (
-                    <span className="text-[10px] text-gray-600 font-mono flex items-center gap-1 bg-[#171717] px-2 py-1 border border-[#232323]">
-                      <Lock className="w-3 h-3 text-[#ee317b]" />
-                      Lock
-                    </span>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setDeletingCustomerId(c.id)}
+                    className="text-xs text-gray-400 hover:text-[#F87171] font-mono hover:bg-[#262626] px-2.5 py-1.5 rounded-none transition-all cursor-pointer"
+                  >
+                    Remove
+                  </button>
                 </div>
               </div>
             );
@@ -1052,14 +1349,79 @@ export default function CustomerTab({
 
                       <div>
                         <label className="block text-xs font-medium text-gray-400 font-mono uppercase tracking-wider mb-1" htmlFor="field-client-source">Lead Channel</label>
-                        <select
-                          id="field-client-source"
-                          value={acquisitionSource}
-                          onChange={(e) => setAcquisitionSource(e.target.value as Customer['acquisitionSource'])}
-                          className="w-full px-3 py-2 text-sm bg-[#181818] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none cursor-pointer font-mono"
-                        >
-                          {ACQUISITION_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
+                        <div className="flex gap-1.5">
+                          {!isAddingChannel ? (
+                            <>
+                              <select
+                                id="field-client-source"
+                                value={acquisitionSource}
+                                onChange={(e) => setAcquisitionSource(e.target.value as Customer['acquisitionSource'])}
+                                className="flex-1 px-3 py-2 text-sm bg-[#181818] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none cursor-pointer font-mono"
+                              >
+                                {acquisitionChannels.map(s => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => setIsAddingChannel(true)}
+                                className="px-2.5 bg-[#262626] text-gray-300 hover:text-white border border-[#262626] hover:border-[#ee317b] font-mono text-xs font-bold cursor-pointer transition-colors"
+                                title="Add custom Lead Option"
+                              >
+                                + New
+                              </button>
+                            </>
+                          ) : (
+                            <div className="flex-1 flex gap-1 items-center bg-[#181818] border border-[#262626] px-2 py-1">
+                              <input
+                                type="text"
+                                placeholder="Channel name..."
+                                value={newChannelInput}
+                                onChange={(e) => setNewChannelInput(e.target.value)}
+                                className="flex-1 bg-transparent text-white text-xs outline-none border-b border-transparent focus:border-[#ee317b] font-mono"
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    const cleaned = newChannelInput.trim();
+                                    if (cleaned && !acquisitionChannels.includes(cleaned)) {
+                                      const updated = [...acquisitionChannels, cleaned];
+                                      setAcquisitionChannels(updated);
+                                      localStorage.setItem('mena_inc_acquisition_channels_v3', JSON.stringify(updated));
+                                      setAcquisitionSource(cleaned);
+                                    }
+                                    setNewChannelInput('');
+                                    setIsAddingChannel(false);
+                                  }
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const cleaned = newChannelInput.trim();
+                                  if (cleaned && !acquisitionChannels.includes(cleaned)) {
+                                    const updated = [...acquisitionChannels, cleaned];
+                                    setAcquisitionChannels(updated);
+                                    localStorage.setItem('mena_inc_acquisition_channels_v3', JSON.stringify(updated));
+                                    setAcquisitionSource(cleaned);
+                                  }
+                                  setNewChannelInput('');
+                                  setIsAddingChannel(false);
+                                }}
+                                className="text-[#ee317b] hover:text-pink-400 font-bold px-1 text-xs"
+                              >
+                                Add
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewChannelInput('');
+                                  setIsAddingChannel(false);
+                                }}
+                                className="text-gray-500 hover:text-gray-300 px-1 text-xs"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -1090,12 +1452,20 @@ export default function CustomerTab({
                       </div>
 
                       <div>
-                        <label className="block text-xs font-medium text-gray-400 font-mono uppercase tracking-wider mb-1" htmlFor="field-client-agent">Taken By <span className="text-[#F87171]">*</span></label>
+                        <label className="block text-xs font-medium text-gray-400 font-mono uppercase tracking-wider mb-1 flex items-center gap-1" htmlFor="field-client-agent">
+                          Taken By <span className="text-[#F87171]">*</span>
+                          {!isAdmin && <Lock className="w-3 h-3 text-[#ee317b]" />}
+                        </label>
                         <select
                           id="field-client-agent"
+                          disabled={!isAdmin}
                           value={orderTakenBy}
                           onChange={(e) => setOrderTakenBy(e.target.value as Customer['orderTakenBy'])}
-                          className="w-full px-3 py-2 text-sm bg-[#181818] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none cursor-pointer font-mono"
+                          className={`w-full px-3 py-2 text-sm border font-mono rounded-none outline-none ${
+                            !isAdmin 
+                              ? 'bg-[#181818]/60 border-[#222222] text-zinc-500 cursor-not-allowed' 
+                              : 'bg-[#181818] border-[#262626] text-white focus:border-[#ee317b] cursor-pointer'
+                          }`}
                         >
                           {(employees.length > 0 ? employees.map(emp => emp.name) : AGENTS).map(a => (
                             <option key={a} value={a}>{a}</option>
@@ -1117,17 +1487,18 @@ export default function CustomerTab({
                         </select>
                       </div>
 
-                      <div>
-                        <label className="block text-xs font-medium text-gray-400 font-mono uppercase tracking-wider mb-1" htmlFor="field-client-delivery">Final Payment Date (Delivery Date)</label>
-                        <input
-                          id="field-client-delivery"
-                          type="date"
-                          required
-                          value={deliveryDate}
-                          onChange={(e) => setDeliveryDate(e.target.value)}
-                          className="w-full px-3 py-2 text-sm bg-[#181818] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none font-mono cursor-pointer"
-                        />
-                      </div>
+                      {editingCustomer && (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-400 font-mono uppercase tracking-wider mb-1" htmlFor="field-client-delivery">Final Payment Date (Delivery Date)</label>
+                          <input
+                            id="field-client-delivery"
+                            type="date"
+                            value={deliveryDate}
+                            onChange={(e) => setDeliveryDate(e.target.value)}
+                            className="w-full px-3 py-2 text-sm bg-[#181818] text-white border border-[#262626] focus:border-[#ee317b] rounded-none outline-none font-mono cursor-pointer"
+                          />
+                        </div>
+                      )}
                     </div>
 
                     <div className="bg-[#181818] border border-[#262626] rounded-none p-4 mt-6 space-y-4">
@@ -1326,13 +1697,13 @@ export default function CustomerTab({
 
                       <div className="grid grid-cols-2 gap-4 pt-3 border-t border-[#262626] text-xs font-mono">
                         <div>
-                          <span className="text-gray-500 block text-[9px] uppercase font-mono">Full Payment (Col X Formula)</span>
+                          <span className="text-gray-500 block text-[9px] uppercase font-mono">Full Payment</span>
                           <span className="text-sm font-semibold text-[#ee317b]">
                             {computedFullPayment.toLocaleString()} ETB
                           </span>
                         </div>
                         <div>
-                          <span className="text-gray-500 block text-[9px] uppercase font-mono">Remaining Due (Col V Formula)</span>
+                          <span className="text-gray-500 block text-[9px] uppercase font-mono">Remaining Due</span>
                           <span className={`text-sm font-semibold ${computedRemainingBalance > 0 ? 'text-[#F87171]' : 'text-[#71b536]'}`}>
                             {computedRemainingBalance <= 0 ? 'Paid (0 ETB)' : `${computedRemainingBalance.toLocaleString()} ETB`}
                           </span>
@@ -1351,7 +1722,7 @@ export default function CustomerTab({
 
                     {/* Paper Type 1 */}
                     <div className="bg-[#181818] border border-[#262626] rounded-none p-4 space-y-3 font-mono">
-                      <span className="text-[10px] text-[#ee317b] tracking-wider uppercase font-bold block">First Layout Stock Deduction (Col L &amp; M)</span>
+                      <span className="text-[10px] text-[#ee317b] tracking-wider uppercase font-bold block">First Layout Stock Deduction</span>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-[10px] text-gray-400 uppercase tracking-widest mb-1">Paper Type 1</label>
@@ -1388,7 +1759,7 @@ export default function CustomerTab({
 
                     {/* Paper Type 2 */}
                     <div className="bg-[#181818] border border-[#262626] rounded-none p-4 space-y-3 font-mono">
-                      <span className="text-[10px] text-gray-400 tracking-wider uppercase font-bold block">Optional Second Layout Stock (Col N &amp; O)</span>
+                      <span className="text-[10px] text-gray-400 tracking-wider uppercase font-bold block">Optional Second Layout Stock</span>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-[10px] text-gray-400 uppercase tracking-widest mb-1">Paper Type 2</label>
@@ -1429,7 +1800,7 @@ export default function CustomerTab({
 
                     {/* Paper Type 3 */}
                     <div className="bg-[#181818] border border-[#262626] rounded-none p-4 space-y-3 font-mono">
-                      <span className="text-[10px] text-gray-400 tracking-wider uppercase font-bold block">Optional Third Layout Stock (Col P &amp; Q)</span>
+                      <span className="text-[10px] text-gray-400 tracking-wider uppercase font-bold block">Optional Third Layout Stock</span>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-[10px] text-gray-400 uppercase tracking-widest mb-1">Paper Type 3</label>
@@ -1472,15 +1843,15 @@ export default function CustomerTab({
 
                 {formStep === 3 && (
                   <div className="space-y-4 font-mono">
-                    <h4 className="text-xs font-mono uppercase tracking-wider text-gray-500 font-bold border-b border-[#262626] pb-1.5">3. Auxiliary / Special Layout Sheets (Query Formulas)</h4>
+                    <h4 className="text-xs font-mono uppercase tracking-wider text-gray-500 font-bold border-b border-[#262626] pb-1.5">3. Auxiliary / Special Layout Sheets</h4>
                     <p className="text-xs text-gray-400 leading-relaxed">
-                      Special formulas divide Entrance paper sheet counts by 16, and Ajabi paper counts by 9 prior to subtracting. Select materials below:
+                      Entrance paper sheet counts are divided by 16, and Ajabi paper counts are divided by 9 prior to subtracting. Select materials below:
                     </p>
 
                     {/* Entrance Aux (Divided by 16) */}
                     <div className="bg-[#181818] border border-[#262626] rounded-none p-4 space-y-3">
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] text-sky-400 tracking-wider uppercase font-bold block">Entrance Sheets Spec (Col R &amp; S)</span>
+                        <span className="text-[10px] text-sky-400 tracking-wider uppercase font-bold block">Entrance Sheets Spec</span>
                         <span className="text-[9px] bg-[#112233]/40 border border-sky-900 text-sky-400 px-1.5 py-0.5 rounded-none font-mono">DIVIDED BY 16</span>
                       </div>
                       
@@ -1528,7 +1899,7 @@ export default function CustomerTab({
                     {/* Ajabi Aux (Divided by 9) */}
                     <div className="bg-[#181818] border border-[#262626] rounded-none p-4 space-y-3">
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] text-pink-400 tracking-wider uppercase font-bold block">Ajabi Sheets Spec (Col T &amp; U)</span>
+                        <span className="text-[10px] text-pink-400 tracking-wider uppercase font-bold block">Ajabi Sheets Spec</span>
                         <span className="text-[9px] bg-pink-900/20 border border-pink-900/40 text-pink-400 px-1.5 py-0.5 rounded-none font-mono">DIVIDED BY 9</span>
                       </div>
                       
@@ -1600,7 +1971,27 @@ export default function CustomerTab({
                     Cancel
                   </button>
                   
-                  {formStep < 3 ? (
+                  {/* Save and Add Another visible on all steps for convenience when Aux/Special page is not needed */}
+                  {!editingCustomer && (
+                    <button
+                      type="button"
+                      onClick={handleSaveAndAddAnother}
+                      className="px-4 py-2 border border-[#ee317b] text-[#ee317b] hover:bg-[#ee317b]/10 text-xs font-mono font-bold cursor-pointer select-none"
+                      title="Save this order, and immediately start another order for this same customer"
+                    >
+                      Save &amp; Add Another Order
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleFormSubmit}
+                    className="px-5 py-2 bg-[#ee317b] hover:bg-[#d61e63] text-white text-xs font-mono font-bold cursor-pointer select-none"
+                  >
+                    {editingCustomer ? 'Save Modification' : 'Complete Record Order'}
+                  </button>
+
+                  {formStep < 3 && (
                     <button
                       type="button"
                       onClick={() => {
@@ -1611,31 +2002,11 @@ export default function CustomerTab({
                         setFormError('');
                         setFormStep((prev) => (prev + 1) as 1 | 2 | 3);
                       }}
-                      className="px-4 py-2 bg-[#ee317b] text-white font-mono font-bold text-xs hover:bg-[#d61e63] flex items-center gap-1 cursor-pointer select-none"
+                      className="px-4 py-2 bg-[#262626] text-stone-300 border border-[#3e3e3e] font-mono font-bold text-xs hover:bg-[#323232] hover:text-white flex items-center gap-1 cursor-pointer select-none"
                     >
                       <span>Next Page</span>
                       <ChevronRight className="w-4 h-4" />
                     </button>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      {!editingCustomer && (
-                        <button
-                          type="button"
-                          onClick={handleSaveAndAddAnother}
-                          className="px-4 py-2 border border-[#ee317b] text-[#ee317b] hover:bg-[#ee317b]/10 text-xs font-mono font-bold cursor-pointer select-none"
-                          title="Save this order, and immediately start another order for this same customer"
-                        >
-                          Save &amp; Add Another Order
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={handleFormSubmit}
-                        className="px-5 py-2 bg-[#ee317b] hover:bg-[#d61e63] text-white text-xs font-mono font-bold cursor-pointer select-none"
-                      >
-                        {editingCustomer ? 'Save Modification' : 'Complete Record Order'}
-                      </button>
-                    </div>
                   )}
                 </div>
               </div>
@@ -1693,6 +2064,466 @@ export default function CustomerTab({
             </motion.div>
           );
         })()}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showBulkDeleteConfirm && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4 font-mono select-none"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-[#121212] border border-[#ee317b]/60 max-w-md w-full p-6 text-left space-y-5"
+            >
+              <div className="flex items-start gap-3.5">
+                <div className="text-[#ee317b] text-3xl">⚠️</div>
+                <div className="space-y-1.5 font-semibold text-white">
+                  <h3 className="text-white text-sm font-bold uppercase tracking-wider">Confirm Bulk Order Disposal</h3>
+                  <p className="text-xs text-gray-400 font-sans font-normal leading-relaxed">
+                    Are you sure you want to permanently delete the <span className="text-white font-bold font-mono">{selectedCustomerIds.length}</span> selected customer logs? 
+                  </p>
+                  <p className="text-xs text-stone-500 leading-relaxed font-sans font-normal">
+                    This will wipe out all selected client records and return occupied paper stock weights to available inventory balances.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#262626]">
+                <button
+                  onClick={() => setShowBulkDeleteConfirm(false)}
+                  className="px-3.5 py-1.5 text-xs text-gray-400 hover:text-white border border-[#262626] bg-[#181818] uppercase tracking-wider cursor-pointer font-mono"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={executeBulkDeleteConfirmed}
+                  className="px-4 py-1.5 text-xs bg-[#ee317b] hover:bg-[#d61e63] text-white font-bold uppercase tracking-widest cursor-pointer font-mono"
+                >
+                  Delete Selected
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showProformaModal && (
+          <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4 overflow-y-auto font-sans text-xs">
+            <div className="max-w-4xl w-full bg-[#181818] border border-[#262626] p-6 relative flex flex-col gap-4 rounded-none my-8 max-h-[90vh]">
+              
+              {/* Controller Bar */}
+              <div className="flex flex-col gap-3 border-b pb-3 border-[#262626] font-mono text-xs print-hidden-stamp-toggle">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
+                    <span className="text-gray-300 font-semibold uppercase">
+                      {isStandaloneProformaMode ? 'STANDALONE PROFORMA WRITER' : 'PROFORMA AUTOMATION LEDGER'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {/* Interactive Toggle for VAT */}
+                    <label className="flex items-center gap-2 text-stone-300 cursor-pointer text-xs mr-3 select-none">
+                      <input
+                        type="checkbox"
+                        checked={proformaIncludeVat}
+                        onChange={(e) => setProformaIncludeVat(e.target.checked)}
+                        className="accent-[#ee317b]"
+                      />
+                      <span>Include 15% VAT</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.focus();
+                        window.print();
+                      }}
+                      className="px-4 py-1.5 bg-[#ee317b] hover:bg-[#d61e63] text-white font-bold cursor-pointer rounded-none uppercase text-[10px] tracking-wider transition-colors"
+                    >
+                      🖨️ Print / Save PDF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowProformaModal(false)}
+                      className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-gray-300 font-bold cursor-pointer rounded-none uppercase text-[10px] tracking-wider transition-colors"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+
+                {/* STANDALONE PROFORMA FORM WRITER CONTROLS ROW */}
+                {isStandaloneProformaMode && (
+                  <div className="bg-[#1a1215] border border-[#ee317b]/30 p-4 space-y-3 font-mono text-xs select-none">
+                    <div className="flex items-center justify-between border-b border-[#2d2024] pb-2">
+                      <span className="text-[#ee317b] font-bold uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                        ✨ Quick Draft Editor
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStandaloneProformaItems(prev => [
+                            ...prev,
+                            {
+                              id: `temp-${Date.now()}`,
+                              productType: 'Double Ring Notebook (50 gsm)',
+                              quantity: 1000,
+                              unitPrice: 85.00,
+                              advancePayment: 0
+                            }
+                          ]);
+                        }}
+                        className="bg-[#ee317b] hover:bg-[#d61e63] text-white px-2.5 py-1 text-[10px] font-bold uppercase cursor-pointer"
+                      >
+                        + Add Custom Row
+                      </button>
+                    </div>
+
+                    {standaloneProformaItems.length === 0 ? (
+                      <p className="text-gray-400 italic text-[11px] py-1">No items drafted. Click "+ Add Custom Row" to start designing your proforma.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                        {standaloneProformaItems.map((item, index) => (
+                          <div key={item.id} className="grid grid-cols-12 gap-2 items-center bg-[#241c1e]/60 p-2 border border-[#2d2024]">
+                            <div className="col-span-1 text-center font-bold text-[#ee317b] text-[10px]">
+                              #{index + 1}
+                            </div>
+                            <div className="col-span-4">
+                              <label className="block text-[8px] text-gray-500 uppercase tracking-widest mb-0.5">Product Description</label>
+                              <input
+                                type="text"
+                                value={item.productType}
+                                placeholder="E.g. Double Ring Notebook (50 gsm)"
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setStandaloneProformaItems(prev => prev.map(p => p.id === item.id ? { ...p, productType: val } : p));
+                                }}
+                                className="w-full bg-[#121212] text-white border border-[#2d2226] px-1.5 py-1 text-[10px] rounded-none outline-none focus:border-[#ee317b]"
+                              />
+                            </div>
+                            <div className="col-span-2">
+                              <label className="block text-[8px] text-gray-500 uppercase tracking-widest mb-0.5">Qty (pcs)</label>
+                              <input
+                                type="number"
+                                placeholder="Qty"
+                                value={item.quantity}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value) || 0;
+                                  setStandaloneProformaItems(prev => prev.map(p => p.id === item.id ? { ...p, quantity: val } : p));
+                                }}
+                                className="w-full bg-[#121212] text-white border border-[#2d2226] px-1.5 py-1 text-[10px] rounded-none outline-none focus:border-[#ee317b]"
+                              />
+                            </div>
+                            <div className="col-span-2">
+                              <label className="block text-[8px] text-gray-500 uppercase tracking-widest mb-0.5">Unit Price</label>
+                              <input
+                                type="number"
+                                placeholder="Price"
+                                value={item.unitPrice}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value) || 0;
+                                  setStandaloneProformaItems(prev => prev.map(p => p.id === item.id ? { ...p, unitPrice: val } : p));
+                                }}
+                                className="w-full bg-[#121212] text-white border border-[#2d2226] px-1.5 py-1 text-[10px] rounded-none outline-none focus:border-[#ee317b]"
+                              />
+                            </div>
+                            <div className="col-span-2">
+                              <label className="block text-[8px] text-gray-500 uppercase tracking-widest mb-0.5">Paid Advance</label>
+                              <input
+                                type="number"
+                                placeholder="Paid"
+                                value={item.advancePayment}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value) || 0;
+                                  setStandaloneProformaItems(prev => prev.map(p => p.id === item.id ? { ...p, advancePayment: val } : p));
+                                }}
+                                className="w-full bg-[#121212] text-white border border-[#2d2226] px-1.5 py-1 text-[10px] rounded-none outline-none focus:border-[#ee317b]"
+                              />
+                            </div>
+                            <div className="col-span-1 text-right pt-2.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setStandaloneProformaItems(prev => prev.filter(p => p.id !== item.id));
+                                }}
+                                className="text-red-400 hover:text-red-500 font-bold px-1 py-0.5 text-xs cursor-pointer"
+                                title="Delete Row"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              
+              {/* Printable Area - Rendered using White-Paper Theme */}
+              <div className="bg-white text-black p-10 shadow-inner overflow-y-auto border border-gray-300 select-text max-h-[70vh] rounded-none flex-1 font-sans" id="proforma-print-container">
+                <style dangerouslySetInnerHTML={{__html: `
+                  #proforma-print-container,
+                  #proforma-print-container * {
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
+                  }
+                  @media print {
+                    /* Strip background and borders of main visual container overlays */
+                    body {
+                      background: white !important;
+                      color: black !important;
+                    }
+                    body > *:not(#proforma-print-container-wrapper) {
+                      visibility: hidden !important;
+                    }
+                    /* Parent elements of #proforma-print-container must not block printed render */
+                    .fixed, .z-50, .max-w-4xl {
+                      position: absolute !important;
+                      left: 0 !important;
+                      top: 0 !important;
+                      width: 100% !important;
+                      height: auto !important;
+                      background: transparent !important;
+                      backdrop-filter: none !important;
+                      border: none !important;
+                      box-shadow: none !important;
+                      padding: 0 !important;
+                      margin: 0 !important;
+                      overflow: visible !important;
+                    }
+                    #proforma-print-container {
+                      position: absolute !important;
+                      left: 0 !important;
+                      top: 0 !important;
+                      width: 100% !important;
+                      height: auto !important;
+                      padding: 15mm !important;
+                      margin: 0 !important;
+                      box-shadow: none !important;
+                      border: none !important;
+                      background: white !important;
+                      color: black !important;
+                      visibility: visible !important;
+                    }
+                    #proforma-print-container * {
+                      visibility: visible !important;
+                    }
+                    .print-hidden-stamp-toggle {
+                      display: none !important;
+                    }
+                  }
+                `}} />
+                
+                {/* Header Section with Corporate Logo and Contact Information */}
+                <div className="flex items-start justify-between border-b border-gray-300 pb-6 mb-6">
+                  {/* Corporate Identity & Brand mark */}
+                  <div className="flex items-start gap-4 text-left">
+                    {/* SVG Letterhead Corporate Logo */}
+                    <svg width="50" height="50" viewBox="0 0 64 64" fill="none" className="mt-1">
+                      {/* Stylized geometric corporate butterfly / heart wings shape from letterhead */}
+                      <path d="M12 20 C12 10, 32 10, 32 28 C32 10, 52 10, 52 20 C52 40, 32 50, 32 56 C32 50, 12 40, 12 20 Z" fill="#ee317b" fillOpacity="0.1" stroke="#ee317b" strokeWidth="2.5" />
+                      <circle cx="32" cy="28" r="4.5" fill="#ee317b" />
+                      <path d="M22,25 C22,18 32,22 32,28 M42,25 C42,18 32,22 32,28" stroke="#71b536" strokeWidth="1.5" strokeLinecap="round" />
+                    </svg>
+                    <div>
+                      <h1 className="text-xl font-black tracking-tight text-gray-900 font-mono text-left" style={{ textTransform: 'lowercase' }}>
+                        mena<span className="text-[#ee317b] font-sans">.</span>inc
+                      </h1>
+                      <p className="text-[10px] uppercase font-mono tracking-widest text-[#71b536] font-bold text-left">Mena Inc Trading PLC</p>
+                      <p className="text-[9px] text-gray-500 font-sans mt-0.5 max-w-[280px] leading-relaxed text-left">
+                        Authorized paper conversion, notebook manufacturing, proforma calculations & custom packaging ledger solutions.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Letterhead address coordinates */}
+                  <div className="text-right font-mono text-[9.5px] text-gray-700 space-y-0.5">
+                    <p className="font-bold text-gray-900 uppercase">Contact Information</p>
+                    <p>Bole Brass, adjacent to Yod Abyssinia</p>
+                    <p>Addis Ababa, Ethiopia</p>
+                    <p className="font-bold text-black mt-1">📞 +251 942 125 568</p>
+                    <p className="font-bold text-black">📞 +251 924 148 847</p>
+                    <p className="text-[9px] text-gray-400 lowercase italic">email: mena.inc@trading-plc.com</p>
+                  </div>
+                </div>
+
+                {/* Sub-header document metrics */}
+                <div className="flex justify-between items-end mb-6">
+                  <div className="text-left">
+                    <h2 className="text-base font-black uppercase text-gray-900 tracking-wider font-mono">PROFORMA INVOICE</h2>
+                    <p className="text-[10px] font-mono text-gray-500">Document No: <strong className="text-black">PRO-2026-{new Date().getMonth() + 1}{new Date().getDate()}-{Math.floor(1000 + Math.random() * 9000)}</strong></p>
+                  </div>
+                  <div className="text-right font-mono text-[10px]">
+                    <p className="text-gray-550">Doc Issue Date:</p>
+                    <p className="font-bold text-gray-900">{new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                  </div>
+                </div>
+
+                {/* Table of selected Order items */}
+                <div className="border border-gray-350 overflow-hidden mb-6 rounded-none">
+                  <table className="w-full text-left border-collapse text-[10px]">
+                    <thead>
+                      <tr className="bg-gray-100 border-b border-gray-300 text-gray-705 font-mono uppercase text-[9px] tracking-wider text-center">
+                        <th className="py-2 px-3 border-r border-gray-300 font-bold w-12 text-center bg-gray-100">No.</th>
+                        <th className="py-2 px-3 border-r border-gray-300 font-bold text-left bg-gray-100">Description of Product Line</th>
+                        <th className="py-2 px-3 border-r border-gray-300 font-bold text-right w-20 bg-gray-100">Qty (pcs)</th>
+                        <th className="py-2 px-3 border-r border-gray-300 font-bold text-right w-28 bg-gray-100">Unit Price (ETB)</th>
+                        <th className="py-2 px-3 font-bold text-right w-32 bg-gray-100">Subtotal (ETB)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 text-gray-800 text-center">
+                      {proformaItemsToRender.map((item, idx) => {
+                        const rowTotal = item.quantity * item.unitPrice;
+                        return (
+                          <tr key={item.id} className="hover:bg-gray-55/50">
+                            <td className="py-2 px-3 border-r border-gray-300 font-mono text-center text-gray-500">{idx + 1}</td>
+                            <td className="py-2 px-3 border-r border-gray-300 text-left text-gray-800 font-sans">
+                              <strong className="text-black font-semibold">{item.productType}</strong>
+                            </td>
+                            <td className="py-2 px-3 border-r border-gray-300 font-mono text-right text-black font-semibold">{item.quantity.toLocaleString()}</td>
+                            <td className="py-2 px-3 border-r border-gray-300 font-mono text-right text-gray-900">{Number(item.unitPrice).toFixed(2)}</td>
+                            <td className="py-2 px-3 font-mono text-right font-bold text-black">{rowTotal.toFixed(2)}</td>
+                          </tr>
+                        );
+                      })}
+                      {proformaItemsToRender.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="text-center py-8 font-mono text-gray-400">
+                            No drafted items found. Use the editor to add items.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Totals & Deductions summaries */}
+                <div className="flex flex-col md:flex-row items-stretch justify-between gap-6 mb-8 text-[11px]">
+                  {/* Terms and Conditions Block */}
+                  <div className="border border-gray-300 bg-gray-50/50 p-4 font-mono text-[9px] text-gray-600 flex-1 rounded-none leading-relaxed text-left">
+                    <p className="font-bold text-gray-800 uppercase tracking-wider mb-1.5 text-[9.5px]">Terms &amp; General Conditions</p>
+                    <p className="mb-1">1. <strong>Delivery Term:</strong> Within 12-15 working days from order receipt validation.</p>
+                    <p className="mb-1">2. <strong>Payment Term:</strong> Requires at least 30% advance deposit ledger record, balance due prior to packaging release.</p>
+                    <p className="mb-1">3. <strong>Validity:</strong> This proforma remains valid and conversion rates locked for 30 calendar days from the dates above.</p>
+                    <p className="text-[8.5px] text-gray-400 mt-2 lowercase">processed in real-time by digital workbook agent, securely archived.</p>
+                  </div>
+
+                  {/* Summary math table */}
+                  <div className="w-full md:w-80 font-mono space-y-1.5 border border-gray-250 p-4 bg-gray-50/20">
+                    <div className="flex justify-between text-gray-600">
+                      <span>Itemized Sub-Total:</span>
+                      <span className="font-bold text-gray-900">
+                        {proformaItemsToRender.reduce((acc, c) => acc + (c.quantity * c.unitPrice), 0).toFixed(2)} ETB
+                      </span>
+                    </div>
+                    {proformaIncludeVat && (
+                      <div className="flex justify-between text-gray-600">
+                        <span>VAT (15.00%):</span>
+                        <span className="font-bold text-gray-900">
+                          {(proformaItemsToRender.reduce((acc, c) => acc + (c.quantity * c.unitPrice), 0) * 0.15).toFixed(2)} ETB
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between border-t pt-1.5 text-xs text-gray-900 font-black">
+                      <span>Grand Total:</span>
+                      <span>
+                        {(
+                          proformaItemsToRender.reduce((acc, c) => acc + (c.quantity * c.unitPrice), 0) * 
+                          (proformaIncludeVat ? 1.15 : 1)
+                        ).toFixed(2)} ETB
+                      </span>
+                    </div>
+                    <div className="flex justify-between pt-1 text-gray-600 text-[10px] border-b pb-1.5 border-dashed">
+                      <span className="text-green-700 font-bold">Total Recorded Paid (Adv):</span>
+                      <span className="font-bold text-green-700">
+                        -{proformaItemsToRender.reduce((acc, c) => acc + c.advancePayment, 0).toFixed(2)} ETB
+                      </span>
+                    </div>
+                    <div className="flex justify-between pt-1.5 text-[11.5px] font-black text-red-700">
+                      <span>Outstanding Balance Due:</span>
+                      <span>
+                        {Math.max(0, 
+                          (proformaItemsToRender.reduce((acc, c) => acc + (c.quantity * c.unitPrice), 0) * (proformaIncludeVat ? 1.15 : 1)) - 
+                          proformaItemsToRender.reduce((acc, c) => acc + c.advancePayment, 0)
+                        ).toFixed(2)} ETB
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sign-Off Letterhead Block with Corporate Ink Stamp overlapping Authorized signature */}
+                <div className="flex items-center justify-between mt-12 pt-8 border-t border-gray-200 relative">
+                  <div className="space-y-4 font-mono text-[9px] text-left">
+                    <div className="space-y-0.5">
+                      <p className="font-bold text-gray-800">PREPARED BY LEDGER CLERK</p>
+                      <p className="text-gray-500 uppercase">{currentUser?.name || 'Mena Automated Operator'} ({currentUser?.role || 'authorized staff'})</p>
+                    </div>
+                    <div className="w-40 border-b border-gray-400 h-6 border-dashed" />
+                    <p className="text-[7.5px] text-gray-400">Computer generated invoice. Requires no physical signature.</p>
+                  </div>
+
+                  {/* Stamp overlaps on top right */}
+                  <div className="relative w-44 h-28 flex items-center justify-end">
+                    
+                    {/* The signature row */}
+                    <div className="absolute left-0 bottom-4 font-mono text-[9px] text-right pr-6 space-y-1">
+                      <p className="font-bold text-gray-800 uppercase">AUTHORIZED PLC STAMP</p>
+                      <p className="text-gray-500 text-[8px]">Mena Inc Conversion Division</p>
+                    </div>
+
+                    {/* SVG Rounded Double Circle Stamp overlapping signature, tilted 12 degrees */}
+                    <div className="transform rotate-12 absolute right-2 z-10 bottom-0 select-none pb-2">
+                      <svg width="115" height="115" viewBox="0 0 150 150">
+                        {/* Outer thick blue circle */}
+                        <circle cx="75" cy="75" r="72" fill="none" stroke="#2563EB" strokeWidth="2.5" strokeOpacity="0.85" />
+                        <circle cx="75" cy="75" r="66" fill="none" stroke="#2563EB" strokeWidth="1" strokeOpacity="0.85" />
+                        
+                        <path id="curve-top-stamp" d="M 20,75 A 55,55 0 1,1 130,75" fill="none" stroke="none" />
+                        <text fill="#2563EB" fillOpacity="0.85" fontSize="10" fontFamily="sans-serif" fontWeight="bold">
+                          <textPath href="#curve-top-stamp" startOffset="50%" textAnchor="middle">
+                            ሜና ኢንክ ትሬዲንግ ኃ/የተ/የግ/ማ
+                          </textPath>
+                        </text>
+                        
+                        <path id="curve-bottom-stamp" d="M 130,75 A 55,55 0 0,1 20,75" fill="none" stroke="none" />
+                        <text fill="#2563EB" fillOpacity="0.85" fontSize="10" fontFamily="sans-serif" fontWeight="bold">
+                          <textPath href="#curve-bottom-stamp" startOffset="50%" textAnchor="middle">
+                            * MENA INC TRADING PLC *
+                          </textPath>
+                        </text>
+                        
+                        {/* Center circle border */}
+                        <circle cx="75" cy="75" r="34" fill="none" stroke="#2563EB" strokeWidth="1.5" strokeDasharray="4,3" strokeOpacity="0.8" />
+                        
+                        {/* Central text and butterfly icon */}
+                        <g transform="translate(75, 75) scale(0.6)">
+                          <path d="M 0 -22 C -18 -38 -38 -18 -22 0 C -38 18 -18 38 0 22 C 18 38 38 18 22 0 C 38 -18 18 -38 0 -22 Z" fill="none" stroke="#2563EB" strokeWidth="2.5" strokeOpacity="0.8" />
+                          <circle cx="0" cy="0" r="6.5" fill="#2563EB" fillOpacity="0.8" />
+                        </g>
+                        
+                        <text x="75" y="60" fill="#2563EB" fillOpacity="0.85" fontSize="7" fontStyle="italic" fontWeight="bold" textAnchor="middle" fontFamily="monospace">
+                          0942125568
+                        </text>
+                        <text x="75" y="98" fill="#2563EB" fillOpacity="0.85" fontSize="7" fontStyle="italic" fontWeight="bold" textAnchor="middle" fontFamily="monospace">
+                          0924148847
+                        </text>
+                      </svg>
+                    </div>
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+          </div>
+        )}
       </AnimatePresence>
 
     </div>

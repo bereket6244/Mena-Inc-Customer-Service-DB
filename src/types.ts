@@ -242,3 +242,116 @@ export const INITIAL_CUSTOMERS: Customer[] = [
     deliveryDate: '2026-06-08'
   }
 ];
+
+export interface Purchase {
+  id: string;
+  purchasedBy: string;
+  itemOrService: string;
+  quantity: number;
+  unitPrice: number;
+  purchaseDate: string;
+  paymentMethodId: string; // references a BankAccount id
+  totalPrice: number; // calculated according to VAT/Withholding or quantity * unitPrice
+  notesOrDescription: string;
+  recordedBy: string;
+  expenseCategory: string;
+  hasVat?: boolean;
+  vatAmount?: number;
+  hasWithholding?: boolean;
+  withholdingAmount?: number;
+  baseAmount?: number;
+}
+
+export interface ExpenseCategory {
+  id: string;
+  name: string;
+  items: string[];
+}
+
+export const INITIAL_EXPENSE_CATEGORIES: ExpenseCategory[] = [
+  {
+    id: 'cat1',
+    name: 'Raw Paper Stocks',
+    items: [
+      'Big flower premium sheets',
+      'Small flower premium sheets',
+      'White wave textured paper',
+      'Gold foil sheets',
+      'Silver foil sheets',
+      'Kraft Matte stock',
+      'Entrance cardboard sheets',
+      'Ajabi classic backing'
+    ]
+  },
+  {
+    id: 'cat2',
+    name: 'Machinery & Tooling',
+    items: [
+      'Laser engraver focal lens',
+      'Foil plate mold carving',
+      'Heavy duty cutting blades',
+      'Creasing machine rubber belts'
+    ]
+  },
+  {
+    id: 'cat3',
+    name: 'Consumption Supplies',
+    items: [
+      'Toner cartridges',
+      'Hot stamping foils',
+      'Premium wax sticks',
+      'Silk cord ribbons',
+      'Scented wedding spray oils'
+    ]
+  },
+  {
+    id: 'cat4',
+    name: 'Office & Admin',
+    items: [
+      'High-speed internet router subscription',
+      'Stationery pens & glues',
+      'Utility tea/coffee boxes',
+      'Rent and workspace electricity contribution'
+    ]
+  },
+  {
+    id: 'cat5',
+    name: 'Marketing & Ads',
+    items: [
+      'TikTok video promotion credit',
+      'Instagram sponsored page ads',
+      'Wedding planner networking commission',
+      'In-person expo booth decoration accessories'
+    ]
+  }
+];
+
+export const INITIAL_PURCHASES: Purchase[] = [
+  {
+    id: 'pur1',
+    purchasedBy: 'Yeabsra',
+    itemOrService: 'Gold foil sheets',
+    quantity: 10,
+    unitPrice: 150,
+    purchaseDate: '2026-06-01',
+    paymentMethodId: 'b1',
+    totalPrice: 1500,
+    notesOrDescription: 'Sourced premium quality gold foil sheets for organizing Velvet Cards',
+    recordedBy: 'Bereket',
+    expenseCategory: 'Raw Paper Stocks'
+  },
+  {
+    id: 'pur2',
+    purchasedBy: 'Bereket',
+    itemOrService: 'Toner cartridges',
+    quantity: 2,
+    unitPrice: 1200,
+    purchaseDate: '2026-06-04',
+    paymentMethodId: 'b2',
+    totalPrice: 2400,
+    notesOrDescription: 'CMYK laser toner cartridges for high precision proofing prints',
+    recordedBy: 'Bereket',
+    expenseCategory: 'Consumption Supplies'
+  }
+];
+
