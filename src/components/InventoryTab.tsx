@@ -55,6 +55,7 @@ export default function InventoryTab({
 
   // Multi-selection state for paper stocks
   const [selectedStockIds, setSelectedStockIds] = useState<string[]>([]);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   // Quick replenishment state
   const [replenishingStockId, setReplenishingStockId] = useState<string | null>(null);
   const [replenishAmount, setReplenishAmount] = useState<string>('');
@@ -287,13 +288,7 @@ export default function InventoryTab({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => {
-                if (window.confirm(`Are you absolutely sure you want to permanently delete the ${selectedStockIds.length} selected paper stockroom files?`)) {
-                  const remainingStocks = paperStocks.filter(s => !selectedStockIds.includes(s.id));
-                  onUpdateStocks(remainingStocks);
-                  setSelectedStockIds([]);
-                }
-              }}
+              onClick={() => setShowBulkDeleteConfirm(true)}
               className="px-3 py-1 bg-[#421A1D] hover:bg-[#5a1c21] border border-rose-950 text-rose-400 font-bold cursor-pointer text-[10px] tracking-wider uppercase transition-all"
             >
               🗑️ Delete Selected Stocks
@@ -746,6 +741,57 @@ export default function InventoryTab({
             </div>
           );
         })()}
+      </AnimatePresence>
+
+      {/* Non-blocking bulk delete confirmation modal for inventory paper stocks */}
+      <AnimatePresence>
+        {showBulkDeleteConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm select-none">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-[#121212] border border-[#F87171] p-6 max-w-md w-full text-gray-300 font-sans shadow-none rounded-none"
+            >
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-[#2E181D] text-[#F87171] rounded-none">
+                  <AlertTriangle className="w-6 h-6 animate-pulse" />
+                </div>
+                <div className="space-y-2 text-left">
+                  <h3 className="font-mono text-base font-bold text-white uppercase tracking-wider">Bulk-Remove Stocks?</h3>
+                  <p className="text-xs text-gray-400 leading-relaxed font-mono">
+                    Are you absolutely sure you want to permanently delete the <span className="text-white font-bold font-mono">{selectedStockIds.length}</span> selected paper stockroom files?
+                  </p>
+                  <p className="text-xs text-[#F87171] leading-relaxed font-mono">
+                    Warning: This action is irreversible. Deleting warehouses values will affect calculations for customer orders bound to these materials!
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 mt-6 font-mono text-xs">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkDeleteConfirm(false)}
+                  className="px-3.5 py-1.5 border border-[#262626] text-gray-400 hover:text-white hover:bg-[#1C1C1C] transition-all cursor-pointer"
+                >
+                  Cancel Action
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const remainingStocks = paperStocks.filter(s => !selectedStockIds.includes(s.id));
+                    onUpdateStocks(remainingStocks);
+                    setSelectedStockIds([]);
+                    setShowBulkDeleteConfirm(false);
+                  }}
+                  className="px-4 py-1.5 bg-[#F87171] hover:bg-[#EF4444] text-black font-bold transition-all cursor-pointer"
+                >
+                  Yes, Delete Selected
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
 
     </div>

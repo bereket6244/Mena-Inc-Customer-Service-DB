@@ -1,5 +1,5 @@
 import { getFirebaseDb, OperationType, handleFirestoreError } from './firebase';
-import { supabase, isSupabaseConfigured } from './supabase';
+import { supabase, isSupabaseConfigured, setSupabaseValidationError } from './supabase';
 import { Customer, PaperStock, BankAccount, Purchase, ExpenseCategory } from '../types';
 
 // ============================================
@@ -21,12 +21,16 @@ export async function fetchAllPaperStocks(localFallback: PaperStock[]): Promise<
         const { error: seedError } = await supabase
           .from('paper_stocks')
           .insert(localFallback);
-        if (seedError) console.error("Supabase paper_stocks seeding error: ", seedError);
+        if (seedError) {
+          console.error("Supabase paper_stocks seeding error: ", seedError);
+          setSupabaseValidationError(`Seeding paper_stocks failed: ${seedError.message}. Did you run the SQL bootstrapping script and disable RLS?`);
+        }
         return localFallback;
       }
       return data as PaperStock[];
-    } catch (err) {
+    } catch (err: any) {
       console.error("Supabase fetchAllPaperStocks failed, falling back:", err);
+      setSupabaseValidationError(`Database Query Error: ${err?.message || String(err)}. Check if you pasted and executed the bootstrapping script in your Supabase SQL Editor.`);
     }
   }
 
@@ -128,12 +132,16 @@ export async function fetchAllCustomers(localFallback: Customer[]): Promise<Cust
         const { error: seedError } = await supabase
           .from('customers')
           .insert(localFallback);
-        if (seedError) console.error("Supabase customers seeding error: ", seedError);
+        if (seedError) {
+          console.error("Supabase customers seeding error: ", seedError);
+          setSupabaseValidationError(`Seeding customers failed: ${seedError.message}`);
+        }
         return localFallback;
       }
       return data as Customer[];
-    } catch (err) {
+    } catch (err: any) {
       console.error("Supabase fetchAllCustomers failed, falling back:", err);
+      setSupabaseValidationError(`Database Query Error: ${err?.message || String(err)}`);
     }
   }
 
@@ -234,12 +242,16 @@ export async function fetchAllBankAccounts(localFallback: BankAccount[]): Promis
         const { error: seedError } = await supabase
           .from('bank_accounts')
           .insert(localFallback);
-        if (seedError) console.error("Supabase bank_accounts seeding error: ", seedError);
+        if (seedError) {
+          console.error("Supabase bank_accounts seeding error: ", seedError);
+          setSupabaseValidationError(`Seeding bank_accounts failed: ${seedError.message}`);
+        }
         return localFallback;
       }
       return data as BankAccount[];
-    } catch (err) {
+    } catch (err: any) {
       console.error("Supabase fetchAllBankAccounts failed, falling back:", err);
+      setSupabaseValidationError(`Database Query Error: ${err?.message || String(err)}`);
     }
   }
 
@@ -340,12 +352,16 @@ export async function fetchAllPurchases(localFallback: Purchase[]): Promise<Purc
         const { error: seedError } = await supabase
           .from('purchases')
           .insert(localFallback);
-        if (seedError) console.error("Supabase purchases seeding error: ", seedError);
+        if (seedError) {
+          console.error("Supabase purchases seeding error: ", seedError);
+          setSupabaseValidationError(`Seeding purchases failed: ${seedError.message}`);
+        }
         return localFallback;
       }
       return data as Purchase[];
-    } catch (err) {
+    } catch (err: any) {
       console.error("Supabase fetchAllPurchases failed, falling back:", err);
+      setSupabaseValidationError(`Database Query Error: ${err?.message || String(err)}`);
     }
   }
 
@@ -446,12 +462,16 @@ export async function fetchAllExpenseCategories(localFallback: ExpenseCategory[]
         const { error: seedError } = await supabase
           .from('expense_categories')
           .insert(localFallback);
-        if (seedError) console.error("Supabase expense_categories seeding error: ", seedError);
+        if (seedError) {
+          console.error("Supabase expense_categories seeding error: ", seedError);
+          setSupabaseValidationError(`Seeding expense_categories failed: ${seedError.message}`);
+        }
         return localFallback;
       }
       return data as ExpenseCategory[];
-    } catch (err) {
+    } catch (err: any) {
       console.error("Supabase fetchAllExpenseCategories failed, falling back:", err);
+      setSupabaseValidationError(`Database Query Error: ${err?.message || String(err)}`);
     }
   }
 

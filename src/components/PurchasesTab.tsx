@@ -116,6 +116,8 @@ export default function PurchasesTab({
   // Selection for bulk actions
   const [selectedPurchaseIds, setSelectedPurchaseIds] = useState<string[]>([]);
   const [deletingPurchaseId, setDeletingPurchaseId] = useState<string | null>(null);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [deletingCategory, setDeletingCategory] = useState<ExpenseCategory | null>(null);
 
   const isAdmin = currentUser?.role === 'admin';
 
@@ -479,15 +481,7 @@ export default function PurchasesTab({
 
   // safe delete a category
   const handleDeleteCategory = (cat: ExpenseCategory) => {
-    const isBound = purchases.some(p => p.expenseCategory === cat.name);
-    let promptMsg = `Are you sure you want to delete "${cat.name}" category?`;
-    if (isBound) {
-      promptMsg = `⚠️ ALERT: This category is currently referenced by existing purchase logs. Deleting this category will orphan those ledger lines and they will show up under default Uncategorized layout. Do you wish to continue?`;
-    }
-
-    if (window.confirm(promptMsg)) {
-      onUpdateCategories(categories.filter(c => c.id !== cat.id));
-    }
+    setDeletingCategory(cat);
   };
 
   // Add a new Category
@@ -953,11 +947,7 @@ export default function PurchasesTab({
               </span>
               <button
                 type="button"
-                onClick={() => {
-                  if (window.confirm(`Are you absolutely sure you want to permanently delete the ${selectedPurchaseIds.length} selected purchase logs?`)) {
-                    handleBulkDelete();
-                  }
-                }}
+                onClick={() => setShowBulkDeleteConfirm(true)}
                 className="px-3 py-1 bg-[#421A1D] hover:bg-[#5a1c21] border border-rose-950 text-rose-400 font-bold cursor-pointer text-[10px] tracking-wider uppercase transition-all"
               >
                 🗑️ Delete Selected Purchases
@@ -1168,6 +1158,97 @@ export default function PurchasesTab({
                   <button
                     type="button"
                     onClick={() => handleDeleteSingle(deletingPurchaseId)}
+                    className="px-4 py-1.5 bg-[#ee317b] hover:bg-[#d61e63] text-white font-bold cursor-pointer text-xs uppercase rounded-none"
+                  >
+                    Confirm Delete
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
+      </AnimatePresence>
+
+      {/* Non-blocking bulk delete confirmation modal for Purchases */}
+      <AnimatePresence>
+        {showBulkDeleteConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm select-none">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#121212] border border-[#ee317b]/40 max-w-md w-full p-6 text-left space-y-4"
+            >
+              <div className="space-y-2">
+                <h3 className="font-mono text-white font-bold uppercase tracking-wider text-sm">Discards Highlighted Purchases</h3>
+                <p className="text-stone-400 text-xs leading-relaxed font-sans">
+                  Are you absolutely sure you want to permanently delete the <span className="text-white font-bold font-mono">{selectedPurchaseIds.length}</span> selected purchase logs?
+                </p>
+                <p className="text-stone-500 text-[11px] leading-relaxed font-sans">
+                  Warning: This action will permanently remove these expenses from your calculations and reports. It cannot be undone.
+                </p>
+              </div>
+              <div className="flex justify-end gap-3 pt-3 border-t border-[#262626] font-mono">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkDeleteConfirm(false)}
+                  className="px-4 py-1.5 bg-[#1a1a1a] border border-[#2d2d2d] text-gray-300 hover:text-white hover:bg-[#232323] cursor-pointer text-xs rounded-none"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleBulkDelete();
+                    setShowBulkDeleteConfirm(false);
+                  }}
+                  className="px-4 py-1.5 bg-[#ee317b] hover:bg-[#d61e63] text-white font-bold cursor-pointer text-xs uppercase rounded-none"
+                >
+                  Delete Selected
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Non-blocking custom delete modal for Expense Category */}
+      <AnimatePresence>
+        {deletingCategory && (() => {
+          const isBound = purchases.some(p => p.expenseCategory === deletingCategory.name);
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm select-none">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-[#121212] border border-[#ee317b]/40 max-w-md w-full p-6 text-left space-y-4"
+              >
+                <div className="space-y-2">
+                  <h3 className="font-mono text-white font-bold uppercase tracking-wider text-sm">Remove Expense Category</h3>
+                  <p className="text-stone-400 text-xs leading-relaxed font-sans">
+                    Are you sure you want to delete the expense category <strong className="text-white">"{deletingCategory.name}"</strong>?
+                  </p>
+                  {isBound && (
+                    <p className="text-rose-400 text-[11px] leading-relaxed font-sans">
+                      ⚠️ ALERT: This category is currently referenced by existing purchase logs. Deleting this category will orphan those ledger lines and they will show up under default Uncategorized layout!
+                    </p>
+                  )}
+                </div>
+                <div className="flex justify-end gap-3 pt-3 border-t border-[#262626] font-mono">
+                  <button
+                    type="button"
+                    onClick={() => setDeletingCategory(null)}
+                    className="px-4 py-1.5 bg-[#1a1a1a] border border-[#2d2d2d] text-gray-300 hover:text-white hover:bg-[#232323] cursor-pointer text-xs rounded-none"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUpdateCategories(categories.filter(c => c.id !== deletingCategory.id));
+                      setDeletingCategory(null);
+                    }}
                     className="px-4 py-1.5 bg-[#ee317b] hover:bg-[#d61e63] text-white font-bold cursor-pointer text-xs uppercase rounded-none"
                   >
                     Confirm Delete

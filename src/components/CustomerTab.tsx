@@ -78,18 +78,12 @@ export default function CustomerTab({
   const [standaloneClientPhone, setStandaloneClientPhone] = useState('+251 900 000 000');
   const [applyDigitalStamp, setApplyDigitalStamp] = useState(true);
 
-  // Dynamic html2canvas + jsPDF direct file exporter
+  // Dynamic html2canvas + jsPDF direct file exporter (pure modern Vector text-layout based PDF engine)
   const exportDirectPDF = async () => {
-    const element = document.getElementById('proforma-print-container');
-    if (!element) {
-      alert('Error: Proforma print container not found.');
-      return;
-    }
-    
     const btn = document.getElementById('export-pdf-direct-btn');
     const originalText = btn ? btn.innerHTML : '';
     if (btn) {
-      btn.innerHTML = '⚡ Generating PDF...';
+      btn.innerHTML = '⚡ Generating Vector PDF...';
       btn.setAttribute('disabled', 'true');
     }
 
@@ -98,43 +92,251 @@ export default function CustomerTab({
         ? standaloneClientName 
         : (proformaItemsToRender[0] as any)?.clientName || 'Draft';
 
-      // Capture the element to high-res canvas (scale 2)
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff'
-      });
-
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
       const pdf = new jsPDF({
         orientation: 'p',
         unit: 'mm',
         format: 'a4'
       });
 
-      const imgWidth = 210; // A4 width
-      const pageHeight = 297; // A4 height
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
+      // Colors matching the company theme
+      const primaryColor = [238, 49, 123]; // Mena Pink #ee317b
+      const darkColor = [20, 20, 20];      // Bold dark #141414
+      const lightAccent = [252, 248, 250];  // Very light pink backdrop
+      const lineGray = [220, 220, 222];
 
-      // Add cover/first page
-      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
-      heightLeft -= pageHeight;
+      // Subtle Outer page border for document geometry appeal
+      pdf.setDrawColor(lineGray[0], lineGray[1], lineGray[2]);
+      pdf.setLineWidth(0.3);
+      pdf.rect(10, 10, 190, 277);
 
-      // Add extra pages if needed
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
-        heightLeft -= pageHeight;
+      // --- 1. HEADER BRANDING ---
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(22);
+      pdf.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      pdf.text("MENA PAPER MFG", 15, 24);
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(9);
+      pdf.setTextColor(60, 60, 60);
+      pdf.text("MENA PAPER CONVERSION & BOARD PACKAGING INDUSTRIES PLC", 15, 29);
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(110, 110, 110);
+      pdf.text("VAT Reg No: 849204012 | TIN: 0048291032 | Addis Ababa, Ethiopia", 15, 33);
+      pdf.text("Factory: Akaki Kality | Tel: +251 900 123456 | Mail: info@menapaper.com", 15, 37);
+
+      // Horizontal pink accent separator line
+      pdf.setLineWidth(0.6);
+      pdf.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      pdf.line(15, 41, 195, 41);
+
+      // --- 2. Title & Date info ribbon ---
+      pdf.setFillColor(lightAccent[0], lightAccent[1], lightAccent[2]);
+      pdf.rect(15, 46, 180, 15, "F");
+      
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(13);
+      pdf.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+      pdf.text("PROFORMA INVOICE / PRICE QUOTATION", 22, 55);
+
+      // Vertical pink marker block
+      pdf.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      pdf.rect(15, 46, 2.5, 15, "F");
+
+      // Print date on right side of ribbon
+      const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9);
+      pdf.setTextColor(120, 120, 120);
+      pdf.text(`Date Issued: ${today}`, 142, 55);
+
+      // --- 3. RECIPIENT & SENDER META INFO METRICS ---
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(9.5);
+      pdf.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+      pdf.text("CLIENT / CONSIGNEE METRICS:", 15, 71);
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(11);
+      const recipientName = isStandaloneProformaMode 
+        ? standaloneClientName || 'Valued Corporate Client'
+        : (proformaItemsToRender[0] as any)?.clientName || 'Valued Corporate Client';
+      const recipientPhone = isStandaloneProformaMode 
+        ? standaloneClientPhone || 'N/A'
+        : (proformaItemsToRender[0] as any)?.phone || 'N/A';
+      pdf.text(recipientName, 15, 77);
+      
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9);
+      pdf.setTextColor(80, 80, 80);
+      pdf.text(`Phone Contact: ${recipientPhone}`, 15, 82);
+      pdf.text(`Recipient ID: CLN-2026-${(proformaItemsToRender[0]?.id || 'DRAFT').slice(0, 6).toUpperCase()}`, 15, 87);
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(9.5);
+      pdf.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+      pdf.text("QUOTATION METADATA:", 120, 71);
+      
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9);
+      pdf.setTextColor(80, 80, 80);
+      pdf.text(`Quotation No: MN-PRF-2026-` + Math.floor(1000 + Math.random() * 9000), 120, 77);
+      pdf.text(`Valid Period: 30 Calendar Days`, 120, 82);
+      pdf.text(`FOB Point: Addis Ababa Factory`, 120, 87);
+
+      // --- 4. DATA TABLE FOR ORDER SELECTIONS ---
+      let y = 97;
+      pdf.setFillColor(darkColor[0], darkColor[1], darkColor[2]);
+      pdf.rect(15, y, 180, 8.5, "F");
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(9);
+      pdf.setTextColor(255, 255, 255);
+      pdf.text("S.N.", 18, y + 5.5);
+      pdf.text("PRODUCT / MATERIAL DESCRIPTION", 30, y + 5.5);
+      pdf.text("QTY", 120, y + 5.5, { align: "right" });
+      pdf.text("UNIT PRICE (ETB)", 153, y + 5.5, { align: "right" });
+      pdf.text("TOTAL PRICE (ETB)", 190, y + 5.5, { align: "right" });
+
+      // Table Rows
+      pdf.setTextColor(60, 60, 60);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9.5);
+      
+      let subtotal = 0;
+      proformaItemsToRender.forEach((item, idx) => {
+        y += 8.5;
+        // Alternating background zebra effect
+        if (idx % 2 === 0) {
+          pdf.setFillColor(252, 252, 254);
+          pdf.rect(15, y, 180, 8.5, "F");
+        }
+        
+        pdf.setDrawColor(240, 240, 242);
+        pdf.setLineWidth(0.2);
+        pdf.line(15, y + 8.5, 195, y + 8.5);
+
+        const rowTotal = item.quantity * item.unitPrice;
+        subtotal += rowTotal;
+
+        // Write row contents with vector layouts
+        pdf.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+        pdf.text((idx + 1).toString(), 18, y + 6);
+        pdf.text(item.productType, 30, y + 6);
+        pdf.text(item.quantity.toLocaleString(), 120, y + 6, { align: "right" });
+        pdf.text(item.unitPrice.toFixed(2), 153, y + 6, { align: "right" });
+        pdf.text(rowTotal.toFixed(2), 190, y + 6, { align: "right" });
+      });
+
+      // Handle blank case
+      if (proformaItemsToRender.length === 0) {
+        y += 8.5;
+        pdf.setFillColor(255, 241, 242);
+        pdf.rect(15, y, 180, 10, "F");
+        pdf.setFont("helvetica", "italic");
+        pdf.setTextColor(244, 63, 94);
+        pdf.text("No active item lines drafted inside invoice compiler.", 20, y + 6.5);
+        y += 1.5;
       }
 
+      // Calculations
+      const vatRate = 0.15;
+      const vatAmount = proformaIncludeVat ? subtotal * vatRate : 0;
+      const grandTotal = subtotal + vatAmount;
+      const advanceCollected = proformaItemsToRender.reduce((acc, c) => acc + c.advancePayment, 0);
+      const balanceRemaining = grandTotal - advanceCollected;
+
+      // Draw bottom-split calculation table
+      y += 18;
+      
+      // LEFT SIDE: Terms of Sale
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+      pdf.text("LEGAL CONDITIONS & BUSINESS TERMS:", 15, y);
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(110, 110, 110);
+      pdf.text("1. Mode of payments: Approved Bank Bank transfers (T/T) or Bank Deposits.", 15, y + 5);
+      pdf.text("2. Production and converting: Commences instantly upon receiving deposit.", 15, y + 9.5);
+      pdf.text("3. Validity: Offered conversion rate is locked strictly for 30 calendar days.", 15, y + 14);
+      pdf.text("4. Dispatch: All products are fetched directly from our Addis Ababa factory.", 15, y + 18.5);
+
+      // RIGHT SIDE: Ledger math
+      const sumX = 118;
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(9);
+      pdf.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+      pdf.text("QUOTATION SUMMARY:", sumX, y);
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(100, 100, 100);
+      pdf.text("Material Subtotal:", sumX, y + 5);
+      pdf.text(subtotal.toFixed(2) + " ETB", 190, y + 5, { align: "right" });
+
+      pdf.text(`Value Added Tax (VAT 15%):`, sumX, y + 9.5);
+      pdf.text(vatAmount.toFixed(2) + " ETB", 190, y + 9.5, { align: "right" });
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(9.5);
+      pdf.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+      pdf.text("Grand Invoice Total:", sumX, y + 15);
+      pdf.text(grandTotal.toFixed(2) + " ETB", 190, y + 15, { align: "right" });
+
+      // Separate line
+      pdf.setDrawColor(200, 200, 202);
+      pdf.setLineWidth(0.2);
+      pdf.line(sumX, y + 18, 195, y + 18);
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(100, 100, 100);
+      pdf.text("Advance Payment Paid:", sumX, y + 23);
+      pdf.text("-" + advanceCollected.toFixed(2) + " ETB", 190, y + 23, { align: "right" });
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(10.5);
+      pdf.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      pdf.text("Remaining Balance:", sumX, y + 29);
+      pdf.text(balanceRemaining.toFixed(2) + " ETB", 190, y + 29, { align: "right" });
+
+      // --- 5. STAMP, APPROVALS, SIGNATURES ---
+      const footerY = 236;
+      pdf.setLineWidth(0.35);
+      pdf.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      pdf.line(15, footerY, 195, footerY);
+
+      // Signatures labels
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+      pdf.text("AUTHORIZED REPRESENTATIVE APPROVAL", 15, footerY + 8);
+      
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8);
+      pdf.setTextColor(130, 130, 130);
+      pdf.text("Authorized Signature & Seal Date: _______________________", 15, footerY + 16);
+      pdf.text("Customer Approval Signature:        _______________________", 15, footerY + 23);
+
+      // System Stamp Frame
+      pdf.rect(138, footerY + 4, 52, 25);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(8);
+      pdf.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      pdf.text("MENA PAPER MFG PLC", 164, footerY + 11, { align: "center" });
+      pdf.setTextColor(150, 150, 150);
+      pdf.setFontSize(7.5);
+      pdf.text("[ ACCORDED LEDGER SEALS ]", 164, footerY + 16, { align: "center" });
+      pdf.text("Addis Ababa, Ethiopia", 164, footerY + 21, { align: "center" });
+
       pdf.save(`Mena_Inc_Proforma_${clientNameFilename.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
-    } catch (err) {
-      console.error('PDF export crashed:', err);
-      alert('Error exporting PDF locally.');
+    } catch (err: any) {
+      console.error('Vector PDF export crashed:', err);
+      alert(`Export Error: ${err?.message || String(err)}`);
+      throw err;
     } finally {
       if (btn) {
         btn.innerHTML = originalText;

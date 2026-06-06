@@ -69,6 +69,7 @@ export default function PerformanceTab({
 
   // Multi-selection state for payment methods/bank accounts
   const [selectedBankIds, setSelectedBankIds] = useState<string[]>([]);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
   // Expense Period & Category Filter States
   const [expenseStartDate, setExpenseStartDate] = useState('');
@@ -749,14 +750,7 @@ export default function PerformanceTab({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  if (window.confirm(`Are you absolutely sure you want to permanently delete the ${selectedBankIds.length} selected payment accounts?`)) {
-                    selectedBankIds.forEach(id => {
-                      onDeleteBankAccount(id);
-                    });
-                    setSelectedBankIds([]);
-                  }
-                }}
+                onClick={() => setShowBulkDeleteConfirm(true)}
                 className="px-3 py-1 bg-[#421A1D] hover:bg-rose-900 border border-rose-950 text-rose-400 font-bold cursor-pointer text-[10px] tracking-wider uppercase transition-all"
               >
                 🗑️ Delete Selected Accounts
@@ -1175,6 +1169,61 @@ export default function PerformanceTab({
             </motion.div>
           );
         })()}
+      </AnimatePresence>
+
+      {/* Non-blocking bulk delete confirmation modal for payment accounts */}
+      <AnimatePresence>
+        {showBulkDeleteConfirm && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4 font-mono select-none"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-[#121212] border border-[#ee317b]/60 max-w-md w-full p-6 text-left space-y-5"
+            >
+              <div className="flex items-start gap-3.5">
+                <div className="text-[#ee317b] text-3xl">⚠️</div>
+                <div className="space-y-1.5 font-semibold text-white">
+                  <h3 className="text-white text-sm font-bold uppercase tracking-wider">Confirm Bulk Account Deletion</h3>
+                  <p className="text-xs text-gray-400 font-sans font-normal leading-relaxed">
+                    Are you sure you want to permanently delete the <span className="text-white font-bold font-mono">{selectedBankIds.length}</span> selected payment accounts?
+                  </p>
+                  <p className="text-xs text-stone-500 leading-relaxed font-sans font-normal">
+                    Warning: Customer orders currently bound to these deleted accounts will fall back automatically to the standard system defaults. This action cannot be undone.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#262626]">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkDeleteConfirm(false)}
+                  className="px-3.5 py-1.5 text-xs text-gray-400 hover:text-white border border-[#262626] bg-[#181818] uppercase tracking-wider cursor-pointer font-mono"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    selectedBankIds.forEach(id => {
+                      onDeleteBankAccount(id);
+                    });
+                    setSelectedBankIds([]);
+                    setShowBulkDeleteConfirm(false);
+                  }}
+                  className="px-4 py-1.5 text-xs bg-[#ee317b] hover:bg-[#d61e63] text-white font-bold uppercase tracking-widest cursor-pointer font-mono"
+                >
+                  Delete Selected
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
 
     </div>

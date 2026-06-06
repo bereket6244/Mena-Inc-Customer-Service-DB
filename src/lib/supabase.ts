@@ -1,32 +1,27 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Retain environment variables or fallback values
-const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || localStorage.getItem('VITE_SUPABASE_URL') || '';
-const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || localStorage.getItem('VITE_SUPABASE_ANON_KEY') || '';
+// Retrieve credentials from Vite environment variables first, falling back to the hardcoded defaults
+const metaEnv = (import.meta as any).env || {};
+const supabaseUrl = metaEnv.VITE_SUPABASE_URL || 'https://qppigftbbkhcjisnpwmr.supabase.co';
+const supabaseAnonKey = metaEnv.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwcGlnZnRiYmtoY2ppc25wd21yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NTYyMjcsImV4cCI6MjA5NjMzMjIyN30.m-opSU_4iqd5MiewKSFgNSuGqWNQXckR6YBAwFFGbyI';
 
-export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
+export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey && !supabaseAnonKey.startsWith('sb_publishable'));
 
 export const supabase = isSupabaseConfigured 
   ? createClient(supabaseUrl, supabaseAnonKey) 
   : null;
 
-if (isSupabaseConfigured) {
-  console.log("🟢 Supabase engine initialized and connected!");
-} else {
-  console.log("🟡 Supabase credentials not found. Operating on local offline ledger.");
+export let supabaseValidationError: string | null = null;
+
+if (supabaseAnonKey && supabaseAnonKey.startsWith('sb_publishable_')) {
+  supabaseValidationError = "Format Alert: Your Anon Public API Key currently resembles a Stripe publishable key ('sb_publishable_...') instead of a real Supabase Anon public key, which is a long JWT string starting with 'eyJ...'. Please copy your 'anon' 'public' key from Supabase -> Settings -> API.";
+} else if (!isSupabaseConfigured) {
+  supabaseValidationError = "Setup Required: Please write a valid VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY inside your .env configuration files.";
 }
 
-// Function to dynamically update Supabase credentials live from UI if wanted
-export function saveSupabaseCredentials(url: string, key: string) {
-  if (url && key) {
-    localStorage.setItem('VITE_SUPABASE_URL', url.trim());
-    localStorage.setItem('VITE_SUPABASE_ANON_KEY', key.trim());
-    return true;
-  }
-  return false;
+export function setSupabaseValidationError(error: string | null) {
+  supabaseValidationError = error;
 }
 
-export function clearSupabaseCredentials() {
-  localStorage.removeItem('VITE_SUPABASE_URL');
-  localStorage.removeItem('VITE_SUPABASE_ANON_KEY');
-}
+console.log("🟢 Supabase engine loaded. Status Configured:", isSupabaseConfigured);
+

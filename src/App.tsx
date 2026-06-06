@@ -81,9 +81,10 @@ export default function App() {
   const [employees, setEmployees] = useState<EmployeeUser[]>([]);
   const [currentUser, setCurrentUser] = useState<EmployeeUser | null>(null);
   const [showStaffModal, setShowStaffModal] = useState(false);
-  const [tempDbUrl, setTempDbUrl] = useState(() => localStorage.getItem('VITE_SUPABASE_URL') || '');
-  const [tempDbKey, setTempDbKey] = useState(() => localStorage.getItem('VITE_SUPABASE_ANON_KEY') || '');
+  const [tempDbUrl, setTempDbUrl] = useState(() => localStorage.getItem('VITE_SUPABASE_URL') || 'https://qppigftbbkhcjisnpwmr.supabase.co');
+  const [tempDbKey, setTempDbKey] = useState(() => localStorage.getItem('VITE_SUPABASE_ANON_KEY') || 'sb_publishable_lBrgsXkNL5AwXvOQmhGqEw_1Jfn6eU9');
   const [installGuideTab, setInstallGuideTab] = useState<'ios' | 'android'>('android');
+  const [dbValidationError, setDbValidationError] = useState<string | null>(null);
 
   useEffect(() => {
     const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -336,6 +337,9 @@ export default function App() {
         setPurchases(finalP);
         setCategories(finalCat);
         
+        const { supabaseValidationError } = await import('./lib/supabase');
+        setDbValidationError(supabaseValidationError);
+        
         localStorage.setItem(LOCAL_STORAGE_STOCKS_KEY, JSON.stringify(finalS));
         localStorage.setItem(LOCAL_STORAGE_CUSTOMERS_KEY, JSON.stringify(finalC));
         localStorage.setItem(LOCAL_STORAGE_BANKS_KEY, JSON.stringify(finalB));
@@ -371,17 +375,10 @@ export default function App() {
     
     try {
       const { savePaperStockDoc, deletePaperStockDoc } = await import('./lib/dbService');
-      // Delete removed stocks from DB
-      for (const ds of deletedStocks) {
-        try {
-          await deletePaperStockDoc(ds.id);
-        } catch (_) {}
-      }
-      for (const stock of newStocks) {
-        try {
-          await savePaperStockDoc(stock);
-        } catch (_) {}
-      }
+      // Delete removed stocks and update changes concurrently in parallel
+      const deletePromises = deletedStocks.map(ds => deletePaperStockDoc(ds.id).catch(() => {}));
+      const savePromises = newStocks.map(stock => savePaperStockDoc(stock).catch(() => {}));
+      await Promise.allSettled([...deletePromises, ...savePromises]);
     } catch (_) {} finally {
       setTimeout(() => setIsBuffering(false), 400);
     }
@@ -452,16 +449,10 @@ export default function App() {
     handleUpdateCustomers(updatedList);
     try {
       const { saveCustomerDoc, deleteCustomerDoc } = await import('./lib/dbService');
-      for (const item of deletedItems) {
-        try {
-          await deleteCustomerDoc(item.id);
-        } catch (_) {}
-      }
-      for (const item of updatedList) {
-        try {
-          await saveCustomerDoc(item);
-        } catch (_) {}
-      }
+      // Concurrently run all database updates/deletes in parallel
+      const deletePromises = deletedItems.map(item => deleteCustomerDoc(item.id).catch(() => {}));
+      const savePromises = updatedList.map(item => saveCustomerDoc(item).catch(() => {}));
+      await Promise.allSettled([...deletePromises, ...savePromises]);
     } catch (_) {} finally {
       setTimeout(() => setIsBuffering(false), 450);
     }
@@ -542,12 +533,11 @@ export default function App() {
       const oldIds = new Set<string>(purchases.map(p => p.id));
       const newIds = new Set<string>(newPurchases.map(p => p.id));
       
+      const promises: Promise<any>[] = [];
       // Delete removed purchases from database
       for (const oldId of oldIds) {
         if (!newIds.has(oldId)) {
-          try {
-            await deletePurchaseDoc(oldId);
-          } catch (_) {}
+          promises.push(deletePurchaseDoc(oldId).catch(() => {}));
         }
       }
       
@@ -556,11 +546,11 @@ export default function App() {
       for (const p of newPurchases) {
         const oldP = oldMap.get(p.id);
         if (!oldP || JSON.stringify(oldP) !== JSON.stringify(p)) {
-          try {
-            await savePurchaseDoc(p);
-          } catch (_) {}
+          promises.push(savePurchaseDoc(p).catch(() => {}));
         }
       }
+
+      await Promise.allSettled(promises);
     } catch (_) {} finally {
       setTimeout(() => setIsBuffering(false), 400);
     }
@@ -572,11 +562,8 @@ export default function App() {
     localStorage.setItem(LOCAL_STORAGE_CATEGORIES_KEY, JSON.stringify(newCategories));
     try {
       const { saveExpenseCategoryDoc } = await import('./lib/dbService');
-      for (const cat of newCategories) {
-        try {
-          await saveExpenseCategoryDoc(cat);
-        } catch (_) {}
-      }
+      const promises = newCategories.map(cat => saveExpenseCategoryDoc(cat).catch(() => {}));
+      await Promise.allSettled(promises);
     } catch (_) {} finally {
       setTimeout(() => setIsBuffering(false), 400);
     }
@@ -640,15 +627,11 @@ export default function App() {
       localStorage.setItem(LOCAL_STORAGE_BANKS_KEY, JSON.stringify(DEFAULT_BANK_ACCOUNTS));
 
       const { savePaperStockDoc, saveCustomerDoc, saveBankAccountDoc } = await import('./lib/dbService');
-      for (const stock of DEFAULT_PAPER_STOCKS) {
-        await savePaperStockDoc(stock);
-      }
-      for (const cust of INITIAL_CUSTOMERS) {
-        await saveCustomerDoc(cust);
-      }
-      for (const acct of DEFAULT_BANK_ACCOUNTS) {
-        await saveBankAccountDoc(acct);
-      }
+      const stockPromises = DEFAULT_PAPER_STOCKS.map(stock => savePaperStockDoc(stock).catch(() => {}));
+      const custPromises = INITIAL_CUSTOMERS.map(cust => saveCustomerDoc(cust).catch(() => {}));
+      const bankPromises = DEFAULT_BANK_ACCOUNTS.map(acct => saveBankAccountDoc(acct).catch(() => {}));
+      
+      await Promise.allSettled([...stockPromises, ...custPromises, ...bankPromises]);
     } catch (_) {} finally {
       setTimeout(() => setIsBuffering(false), 600);
     }
@@ -852,14 +835,14 @@ export default function App() {
                 type="button"
                 onClick={() => setShowDbConfigModal(true)}
                 className={`flex items-center gap-1.5 text-[10px] font-mono px-2.5 py-1.5 rounded-none border cursor-pointer active:scale-95 transition-all outline-none ${
-                  liveDbLinked 
+                  liveDbLinked && !dbValidationError
                     ? 'bg-[#112918] text-[#71b536] border-[#71b536]/30 hover:border-[#71b536]' 
                     : 'bg-[#1E1215] text-[#ee317b] border-[#ee317b]/20 hover:border-[#ee317b]'
                 }`}
-                title="Configure Live Supabase Cloud Database Adapter"
+                title="View Supabase Relational Database SQL Script"
               >
-                <Wifi className={`w-3.5 h-3.5 ${liveDbLinked ? 'animate-pulse' : ''}`} />
-                <span className="hidden lg:inline">{liveDbLinked ? 'CLOUDSYNC ACTIVE' : 'LOCAL LEASE ENGINE'}</span>
+                <Wifi className={`w-3.5 h-3.5 ${(liveDbLinked && !dbValidationError) ? 'animate-pulse' : ''}`} />
+                <span className="hidden lg:inline">{(liveDbLinked && !dbValidationError) ? 'CLOUDSYNC ACTIVE' : 'DATABASE ERROR / LOCAL'}</span>
               </button>
 
               <div className="hidden sm:flex items-center gap-1.5 text-xs text-gray-400 font-mono bg-[#181818] border border-[#262626] px-2.5 py-1 rounded-none">
@@ -998,6 +981,56 @@ export default function App() {
 
         {/* ACTIVE MODULE CONTAINER */}
         <div className="transition-all duration-300">
+          {dbValidationError && (
+            <div className="mb-6 bg-[#160b0e] border-l-4 border-[#ee317b] p-5 font-mono text-xs text-left max-w-7xl mx-auto space-y-4">
+              {/* Header */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="animate-pulse h-2.5 w-2.5 bg-[#ee317b] rounded-full inline-block"></span>
+                  <span className="text-white font-bold uppercase tracking-wide text-sm">Supabase Database Synchronizer Notice</span>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => setShowDbConfigModal(true)} 
+                  className="text-[10px] text-[#71b536] hover:underline uppercase font-bold"
+                >
+                  View Bootstrapping SQL ↗
+                </button>
+              </div>
+
+              {/* Step-by-Step explanation of what to do */}
+              <div className="text-gray-300 space-y-2 leading-relaxed font-sans text-xs">
+                <p className="font-semibold text-[#ee317b] font-mono text-xs">
+                  ⚠️ Live Error: <code className="bg-[#240c11] px-1.5 py-0.5 text-white font-mono break-all">{dbValidationError}</code>
+                </p>
+                <p className="pt-1">
+                  Because the database tables are either missing or have <strong>Row Level Security (RLS)</strong> enabled, your app has <strong>automatically and safely loaded all data from local JSON storage</strong> so that you don't lose any of your progress.
+                </p>
+                
+                <div className="mt-3 bg-[#0a0a0a] p-4 border border-[#202020] rounded-none space-y-3 font-sans text-xs">
+                  <div className="text-[#71b536] font-bold font-mono uppercase tracking-wider text-[11px]">⚙️ Step-by-Step Fix (Takes 30 seconds):</div>
+                  <ol className="list-decimal list-inside space-y-2 text-gray-400">
+                    <li>
+                      Log into your <a href="https://supabase.com" target="_blank" rel="noreferrer" className="text-[#71b536] underline hover:text-[#8ce644]">Supabase Dashboard</a>.
+                    </li>
+                    <li>
+                      Open your project, look at the left sidebar, and click <strong>"SQL Editor"</strong> (the terminal icon).
+                    </li>
+                    <li>
+                      Click <strong>"New query"</strong>, click the green button top right <strong className="text-white cursor-pointer hover:underline" onClick={() => setShowDbConfigModal(true)}>"View Bootstrapping SQL"</strong>, copy the complete script, paste it in, and click <strong>"Run"</strong>.
+                    </li>
+                    <li className="text-yellow-400 font-semibold font-mono text-[11px]">
+                      • IMPORTANT: The script contains commands to disable Row Level Security (RLS) on each table (e.g. <code>ALTER TABLE public.paper_stocks DISABLE ROW LEVEL SECURITY;</code>). Supabase enables RLS by default, which blocks insertions unless disabled!
+                    </li>
+                    <li>
+                      Once the SQL statement successfully completes, **reload this page**! The app will automatically connect, sync, and seed the default database.
+                    </li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'inventory' && (
             <InventoryTab
               paperStocks={paperStocks}
@@ -1288,7 +1321,7 @@ export default function App() {
               <div className="px-6 py-4 border-b border-[#262626] flex justify-between items-center bg-[#181818]/60">
                 <div className="flex items-center gap-2 font-mono">
                   <Database className="w-4 h-4 text-[#71b536]" />
-                  <h3 className="text-sm font-bold tracking-wider uppercase text-white">Supabase Cloud Database Settings</h3>
+                  <h3 className="text-sm font-bold tracking-wider uppercase text-white">Supabase Cloud Database Setup Guide</h3>
                 </div>
                 <button
                   onClick={() => setShowDbConfigModal(false)}
@@ -1303,83 +1336,38 @@ export default function App() {
                 
                 <div className="space-y-4">
                   <p className="text-xs text-gray-400 leading-relaxed font-sans">
-                    You can connect this applet with your <strong>live relational Supabase Postgres ledger</strong>. 
-                    Once configured, all customer, stock inventory, bank logs, and purchase ledgers will instantly store and synchronize in real-time.
+                    The Supabase credentials are now **permanently configured directly within our codebase files**. 
+                    There is no need to copy or paste variables!
                   </p>
                   
-                  <div className="bg-[#1E1215] border border-[#ee317b]/15 p-3 font-mono text-[11px] text-gray-400 space-y-1">
-                    <span className="text-[#ee317b] font-bold uppercase block">Deployment Checklist:</span>
-                    <div>• Add these variables to your <strong>Netlify</strong> deployment parameters or your local <strong>.env</strong> file.</div>
-                    <div>• Run the SQL schema script provided below in your Supabase SQL Editor to initialize tables instantly!</div>
+                  <div className="bg-[#1E1215] border border-[#ee317b]/15 p-4 font-mono text-[11px] text-gray-300 space-y-2 leading-relaxed">
+                    <span className="text-[#ee317b] font-bold uppercase block">⚡ Setup Checklist (How to Seed Successfully):</span>
+                    <div>1. Log into your **Supabase Dashboard** for the project.</div>
+                    <div>2. Open the **SQL Editor** in the left menu.</div>
+                    <div>3. Click **New query**, paste the complete SQL script shown below, and hit **Run**.</div>
+                    <div className="text-yellow-400 font-semibold">• IMPORTANT: The script disables Row Level Security (RLS) on each table. This lets the web app initialize and write seed records instantly! If you already created tables earlier but got errors, running this script now will disable RLS and fix the issue immediately.</div>
                   </div>
 
-                  <div className="space-y-4 font-mono text-xs text-left">
-                    <div>
-                      <label className="block text-[10px] uppercase text-gray-400 mb-1 font-bold">Supabase Project URL</label>
-                      <input
-                        type="text"
-                        placeholder="https://your-project-id.supabase.co"
-                        value={tempDbUrl}
-                        onChange={(e) => setTempDbUrl(e.target.value)}
-                        className="w-full bg-[#181818] border border-[#262626] text-xs px-3 py-2 focus:border-[#71b536] outline-none text-white font-sans"
-                      />
+                  {dbValidationError && (
+                    <div className="bg-[#240A10] border border-[#ee317b]/50 p-4 font-mono text-[11px] text-[#ee317b] space-y-1 rounded-none text-left">
+                      <span className="text-[#ee317b] font-bold uppercase flex items-center gap-1.5">
+                        ⚠️ Database Synchronizer Alert:
+                      </span>
+                      <div className="text-gray-300 select-all font-sans leading-relaxed pt-1 whitespace-pre-wrap text-xs font-mono">
+                        {dbValidationError}
+                      </div>
+                      <div className="text-gray-400 text-[10px] font-sans pt-2 leading-relaxed">
+                        💡 Since the tables are either empty or not initialised yet, please run the SQL script below on your Supabase project. The app is falling back to safe Local JSON storage in the meantime to protect your work!
+                      </div>
                     </div>
-
-                    <div>
-                      <label className="block text-[10px] uppercase text-gray-400 mb-1 font-bold">Supabase Anon Public API Key</label>
-                      <input
-                        type="password"
-                        placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                        value={tempDbKey}
-                        onChange={(e) => setTempDbKey(e.target.value)}
-                        className="w-full bg-[#181818] border border-[#262626] text-xs px-3 py-2 focus:border-[#71b536] outline-none text-white font-sans tracking-widest"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* DB Config operations */}
-                <div className="flex flex-wrap gap-3 font-mono text-xs pt-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!tempDbUrl.trim() || !tempDbKey.trim()) {
-                        alert("Please fill in both the URL and Anon Key to make a connection.");
-                        return;
-                      }
-                      localStorage.setItem('VITE_SUPABASE_URL', tempDbUrl.trim());
-                      localStorage.setItem('VITE_SUPABASE_ANON_KEY', tempDbKey.trim());
-                      alert("Supabase integration credentials saved to LocalStorage! Reloading the app to initialize the direct gateway connection...");
-                      window.location.reload();
-                    }}
-                    className="bg-[#71b536] hover:bg-[#5f9c2d] text-black font-bold uppercase py-2 px-4 rounded-none cursor-pointer transition-colors"
-                  >
-                    💾 Save &amp; Connect Gateway
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (window.confirm("Disconnect cloud adapter? All changes will fallback safely to Offline JSON engine.")) {
-                        localStorage.removeItem('VITE_SUPABASE_URL');
-                        localStorage.removeItem('VITE_SUPABASE_ANON_KEY');
-                        setTempDbUrl('');
-                        setTempDbKey('');
-                        alert("Disconnected! Reloading application...");
-                        window.location.reload();
-                      }
-                    }}
-                    className="bg-[#1e1215] border border-[#ee317b]/30 hover:bg-[#31111E] text-[#ee317b] font-medium uppercase py-2 px-4 rounded-none cursor-pointer transition-colors"
-                  >
-                    🔌 Disconnect / Revert Offline
-                  </button>
+                  )}
                 </div>
 
                 {/* SQL setup schema script */}
                 <div className="border-t border-[#262626] pt-4 font-mono text-left">
                   <span className="text-[10px] uppercase text-[#71b536] tracking-wider font-bold block mb-2">📋 Supabase Bootstrapping SQL Schema</span>
                   <div className="text-[10px] text-gray-400 mb-2 font-sans leading-relaxed">
-                    Copy and run this schema code directly inside your <strong>Supabase SQL Editor</strong> to instantly blueprint all relational data matrices:
+                    Copy and run this schema code directly inside your **Supabase SQL Editor**:
                   </div>
                   <div className="relative bg-[#0a0a0a] border border-[#202020] p-3 text-[10px] text-gray-300 max-h-56 overflow-y-auto selection:bg-[#71b536]/25 rounded-none">
                     <pre className="whitespace-pre overflow-x-auto text-[9px] text-left leading-normal font-mono text-gray-300">
@@ -1451,7 +1439,14 @@ CREATE TABLE IF NOT EXISTS public.customers (
   "incompletionReason" text,
   "isVatAdded" boolean DEFAULT false,
   "baseUnitPrice" numeric DEFAULT 0
-);`}
+);
+
+-- Disable Row Level Security (RLS) on each table so the web app can read and write records instantly
+ALTER TABLE public.paper_stocks DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.bank_accounts DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.expense_categories DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.purchases DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.customers DISABLE ROW LEVEL SECURITY;`}
                     </pre>
                   </div>
                 </div>
