@@ -639,8 +639,16 @@ export default function App() {
           <div className="absolute bottom-0 right-0 w-2 h-2 bg-[#ee317b]" />
           
           <div className="text-center mb-8">
-            <div className="w-12 h-12 bg-[#ee317b] flex items-center justify-center text-black font-bold mx-auto mb-3">
-              <Lock className="w-6 h-6" />
+            <div className="relative inline-block mb-3">
+              <img 
+                src="https://lh3.googleusercontent.com/d/1bpYlthdXFMnenMktbIvvyRghAooaBh8r" 
+                alt="Mena Logo" 
+                className="w-16 h-16 object-contain bg-[#181818] border border-[#262626] p-1 mx-auto"
+                referrerPolicy="no-referrer"
+              />
+              <div className="absolute -bottom-1 -right-1 bg-[#ee317b] text-black p-1 text-[9px] font-bold leading-none">
+                <Lock className="w-3 h-3" />
+              </div>
             </div>
             <h2 className="text-xl font-bold tracking-tight uppercase">AUTHENTICATED GATEWAY</h2>
             <p className="text-xs text-gray-500 font-mono tracking-widest uppercase mt-1">Mena Inc. Corporate Security</p>
@@ -735,9 +743,20 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
 
-            {/* Branding Logo - Using Primary #ee317b */}
+            {/* Branding Logo - Utilizing the Premium Custom Logo */}
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-none bg-[#ee317b] flex items-center justify-center text-white shadow-sm font-bold">
+              <img 
+                src="https://lh3.googleusercontent.com/d/1bpYlthdXFMnenMktbIvvyRghAooaBh8r" 
+                alt="Mena Logo" 
+                className="w-10 h-10 object-contain bg-[#121212] border border-[#262626] p-0.5 rounded-none"
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                  const fallback = document.getElementById('branding-icon-fallback');
+                  if (fallback) fallback.classList.remove('hidden');
+                }}
+              />
+              <div id="branding-icon-fallback" className="w-9 h-9 rounded-none bg-[#ee317b] flex items-center justify-center text-white shadow-sm font-bold hidden">
                 <Database className="w-5 h-5 text-black" />
               </div>
               <div>

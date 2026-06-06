@@ -72,6 +72,77 @@ export default function CustomerTab({
 
   // Proforma VAT State variables inside modal scope integration
   const [proformaIncludeVat, setProformaIncludeVat] = useState(true);
+  const [standaloneClientName, setStandaloneClientName] = useState('Mena Corporate Client PLC');
+  const [standaloneClientPhone, setStandaloneClientPhone] = useState('+251 900 000 000');
+  const [applyDigitalStamp, setApplyDigitalStamp] = useState(true);
+
+  // Dynamic html2pdf direct file exporter
+  const exportDirectPDF = async () => {
+    const element = document.getElementById('proforma-print-container');
+    if (!element) {
+      alert('Error: Proforma print container not found.');
+      return;
+    }
+    
+    const btn = document.getElementById('export-pdf-direct-btn');
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.innerHTML = '⚡ Generating PDF...';
+      btn.setAttribute('disabled', 'true');
+    }
+
+    try {
+      let html2pdf = (window as any).html2pdf;
+      if (!html2pdf) {
+        // Wait up to 2 seconds for preloaded defer script to parse
+        for (let i = 0; i < 20; i++) {
+          if ((window as any).html2pdf) {
+            html2pdf = (window as any).html2pdf;
+            break;
+          }
+          await new Promise(r => setTimeout(r, 100));
+        }
+      }
+
+      if (!html2pdf) {
+        // Safe dynamically loaded fallback without subresource integrity (causes block inside sandboxed previews)
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+        document.head.appendChild(script);
+        await new Promise((resolve, reject) => {
+          script.onload = resolve;
+          script.onerror = () => reject(new Error('Failed to load PDF engine.'));
+        });
+        html2pdf = (window as any).html2pdf;
+      }
+
+      if (!html2pdf) {
+        throw new Error('PDF Engine could not be loaded.');
+      }
+
+      const clientNameFilename = isStandaloneProformaMode 
+        ? standaloneClientName 
+        : (proformaItemsToRender[0] as any)?.clientName || 'Draft';
+      
+      const opt = {
+        margin:       [12, 12, 12, 12],
+        filename:     `Mena_Inc_Proforma_${clientNameFilename.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true, logging: false },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
+      await html2pdf().from(element).set(opt).save();
+    } catch (err) {
+      console.error('PDF export crashed:', err);
+      alert('Error exporting PDF. Please use the Print button as alternate.');
+    } finally {
+      if (btn) {
+        btn.innerHTML = originalText;
+        btn.removeAttribute('disabled');
+      }
+    }
+  };
 
   const isAdmin = currentUser?.role === 'admin';
 
@@ -2127,6 +2198,17 @@ export default function CustomerTab({
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
+                    {/* Interactive Toggle for Stamp Seal */}
+                    <label className="flex items-center gap-2 text-stone-300 cursor-pointer text-xs mr-3 select-none">
+                      <input
+                        type="checkbox"
+                        checked={applyDigitalStamp}
+                        onChange={(e) => setApplyDigitalStamp(e.target.checked)}
+                        className="accent-[#71b536]"
+                      />
+                      <span>Apply PLC Stamp Seal</span>
+                    </label>
+
                     {/* Interactive Toggle for VAT */}
                     <label className="flex items-center gap-2 text-stone-300 cursor-pointer text-xs mr-3 select-none">
                       <input
@@ -2137,16 +2219,17 @@ export default function CustomerTab({
                       />
                       <span>Include 15% VAT</span>
                     </label>
+
+                    {/* Export PDF Button (Instant client-generate) */}
                     <button
+                      id="export-pdf-direct-btn"
                       type="button"
-                      onClick={() => {
-                        window.focus();
-                        window.print();
-                      }}
-                      className="px-4 py-1.5 bg-[#ee317b] hover:bg-[#d61e63] text-white font-bold cursor-pointer rounded-none uppercase text-[10px] tracking-wider transition-colors"
+                      onClick={exportDirectPDF}
+                      className="px-4 py-1.5 bg-[#71b536] hover:bg-[#5ea126] text-black font-bold cursor-pointer rounded-none uppercase text-[10px] tracking-wider transition-colors flex items-center gap-1"
                     >
-                      🖨️ Print / Save PDF
+                      <span>📥 Export PDF</span>
                     </button>
+
                     <button
                       type="button"
                       onClick={() => setShowProformaModal(false)}
@@ -2160,6 +2243,28 @@ export default function CustomerTab({
                 {/* STANDALONE PROFORMA FORM WRITER CONTROLS ROW */}
                 {isStandaloneProformaMode && (
                   <div className="bg-[#1a1215] border border-[#ee317b]/30 p-4 space-y-3 font-mono text-xs select-none">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-[#110b0d] p-3 border border-[#2d2024] mb-1">
+                      <div>
+                        <label className="block text-[9px] uppercase text-gray-400 font-bold mb-1">PROFORMA CLIENT NAME</label>
+                        <input 
+                          type="text" 
+                          value={standaloneClientName} 
+                          onChange={(e) => setStandaloneClientName(e.target.value)} 
+                          className="w-full bg-[#181818] border border-[#2d2024] px-2.5 py-1 text-[11px] hover:border-[#ee317b]/40 outline-none focus:border-[#ee317b] text-white"
+                          placeholder="Mena Corporate Client PLC"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] uppercase text-gray-400 font-bold mb-1">PROFORMA CLIENT PHONE</label>
+                        <input 
+                          type="text" 
+                          value={standaloneClientPhone} 
+                          onChange={(e) => setStandaloneClientPhone(e.target.value)} 
+                          className="w-full bg-[#181818] border border-[#2d2024] px-2.5 py-1 text-[11px] hover:border-[#ee317b]/40 outline-none focus:border-[#ee317b] text-white"
+                          placeholder="+251 900 000 000"
+                        />
+                      </div>
+                    </div>
                     <div className="flex items-center justify-between border-b border-[#2d2024] pb-2">
                       <span className="text-[#ee317b] font-bold uppercase tracking-wider text-[11px] flex items-center gap-1.5">
                         ✨ Quick Draft Editor
@@ -2324,13 +2429,13 @@ export default function CustomerTab({
                 <div className="flex items-start justify-between border-b border-gray-300 pb-6 mb-6">
                   {/* Corporate Identity & Brand mark */}
                   <div className="flex items-start gap-4 text-left">
-                    {/* SVG Letterhead Corporate Logo */}
-                    <svg width="50" height="50" viewBox="0 0 64 64" fill="none" className="mt-1">
-                      {/* Stylized geometric corporate butterfly / heart wings shape from letterhead */}
-                      <path d="M12 20 C12 10, 32 10, 32 28 C32 10, 52 10, 52 20 C52 40, 32 50, 32 56 C32 50, 12 40, 12 20 Z" fill="#ee317b" fillOpacity="0.1" stroke="#ee317b" strokeWidth="2.5" />
-                      <circle cx="32" cy="28" r="4.5" fill="#ee317b" />
-                      <path d="M22,25 C22,18 32,22 32,28 M42,25 C42,18 32,22 32,28" stroke="#71b536" strokeWidth="1.5" strokeLinecap="round" />
-                    </svg>
+                    {/* Premium App Logo image replacement */}
+                    <img 
+                      src="https://lh3.googleusercontent.com/d/1bpYlthdXFMnenMktbIvvyRghAooaBh8r" 
+                      alt="Mena Logo" 
+                      className="w-12 h-12 object-contain bg-white border border-gray-250 p-1 mt-1"
+                      referrerPolicy="no-referrer"
+                    />
                     <div>
                       <h1 className="text-xl font-black tracking-tight text-gray-900 font-mono text-left" style={{ textTransform: 'lowercase' }}>
                         mena<span className="text-[#ee317b] font-sans">.</span>inc
@@ -2362,6 +2467,30 @@ export default function CustomerTab({
                   <div className="text-right font-mono text-[10px]">
                     <p className="text-gray-550">Doc Issue Date:</p>
                     <p className="font-bold text-gray-900">{new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                  </div>
+                </div>
+
+                {/* Client Recipient Details */}
+                <div className="grid grid-cols-2 gap-4 mb-6 border-t border-b border-gray-200 py-4 font-sans text-[10px]">
+                  <div className="text-left border-r border-gray-100 pr-4">
+                    <p className="font-mono text-[8px] uppercase tracking-widest text-[#ee317b] font-bold mb-1">CLIENT BILL TO</p>
+                    <p className="font-bold text-gray-900 text-xs font-sans uppercase">
+                      {isStandaloneProformaMode 
+                        ? standaloneClientName 
+                        : (proformaItemsToRender[0] as any)?.clientName || 'Valued Corporate Client'}
+                    </p>
+                    <p className="text-gray-500 mt-1">
+                      📞 {isStandaloneProformaMode 
+                        ? standaloneClientPhone 
+                        : '+251 (Customer Record)'}
+                    </p>
+                    <p className="text-gray-400 text-[9px] mt-0.5">Approved Ledger Recipient ID: CLN-2026-{(proformaItemsToRender[0]?.id || 'DRAFT').slice(0, 6)}</p>
+                  </div>
+                  <div className="text-left pl-4 font-mono text-left">
+                    <p className="text-[8px] uppercase tracking-widest text-[#71b536] font-bold mb-1">ISSUED BY AUTHORITY</p>
+                    <p className="text-gray-800 font-bold uppercase">{currentUser?.name || 'Mena Automated Operator'}</p>
+                    <p className="text-gray-500 font-sans text-[9.5px]">Position: <span className="text-black font-semibold uppercase text-[9px]">{currentUser?.role || 'Staff Operator'}</span></p>
+                    <p className="text-gray-450 italic mt-1 font-sans text-[9px]">Secure conversion ledger validation active.</p>
                   </div>
                 </div>
 
@@ -2477,44 +2606,52 @@ export default function CustomerTab({
                       <p className="text-gray-500 text-[8px]">Mena Inc Conversion Division</p>
                     </div>
 
-                    {/* SVG Rounded Double Circle Stamp overlapping signature, tilted 12 degrees */}
-                    <div className="transform rotate-12 absolute right-2 z-10 bottom-0 select-none pb-2">
-                      <svg width="115" height="115" viewBox="0 0 150 150">
-                        {/* Outer thick blue circle */}
-                        <circle cx="75" cy="75" r="72" fill="none" stroke="#2563EB" strokeWidth="2.5" strokeOpacity="0.85" />
-                        <circle cx="75" cy="75" r="66" fill="none" stroke="#2563EB" strokeWidth="1" strokeOpacity="0.85" />
-                        
-                        <path id="curve-top-stamp" d="M 20,75 A 55,55 0 1,1 130,75" fill="none" stroke="none" />
-                        <text fill="#2563EB" fillOpacity="0.85" fontSize="10" fontFamily="sans-serif" fontWeight="bold">
-                          <textPath href="#curve-top-stamp" startOffset="50%" textAnchor="middle">
-                            ሜና ኢንክ ትሬዲንግ ኃ/የተ/የግ/ማ
-                          </textPath>
-                        </text>
-                        
-                        <path id="curve-bottom-stamp" d="M 130,75 A 55,55 0 0,1 20,75" fill="none" stroke="none" />
-                        <text fill="#2563EB" fillOpacity="0.85" fontSize="10" fontFamily="sans-serif" fontWeight="bold">
-                          <textPath href="#curve-bottom-stamp" startOffset="50%" textAnchor="middle">
-                            * MENA INC TRADING PLC *
-                          </textPath>
-                        </text>
-                        
-                        {/* Center circle border */}
-                        <circle cx="75" cy="75" r="34" fill="none" stroke="#2563EB" strokeWidth="1.5" strokeDasharray="4,3" strokeOpacity="0.8" />
-                        
-                        {/* Central text and butterfly icon */}
-                        <g transform="translate(75, 75) scale(0.6)">
-                          <path d="M 0 -22 C -18 -38 -38 -18 -22 0 C -38 18 -18 38 0 22 C 18 38 38 18 22 0 C 38 -18 18 -38 0 -22 Z" fill="none" stroke="#2563EB" strokeWidth="2.5" strokeOpacity="0.8" />
-                          <circle cx="0" cy="0" r="6.5" fill="#2563EB" fillOpacity="0.8" />
-                        </g>
-                        
-                        <text x="75" y="60" fill="#2563EB" fillOpacity="0.85" fontSize="7" fontStyle="italic" fontWeight="bold" textAnchor="middle" fontFamily="monospace">
-                          0942125568
-                        </text>
-                        <text x="75" y="98" fill="#2563EB" fillOpacity="0.85" fontSize="7" fontStyle="italic" fontWeight="bold" textAnchor="middle" fontFamily="monospace">
-                          0924148847
-                        </text>
-                      </svg>
-                    </div>
+                    {/* SVG Rounded Double Circle Stamp overlapping signature or Premium Real Stamp Photo overlay */}
+                    {applyDigitalStamp && (
+                      <div className="transform rotate-8 absolute right-2 z-10 bottom-0 select-none pb-2">
+                        <img 
+                          src="https://lh3.googleusercontent.com/d/1CbGimATXHfhwtx7aKcQivzxp8bDi1kZt" 
+                          alt="Company Stamp Seal" 
+                          className="w-[125px] h-[125px] object-contain mix-blend-multiply opacity-90"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            // Render standard SVG stamp if external image fails to fetch due to connection issues
+                            (e.target as HTMLElement).style.display = 'none';
+                            const fallback = document.getElementById('svg-stamp-fallback');
+                            if (fallback) fallback.classList.remove('hidden');
+                          }}
+                        />
+                        <div id="svg-stamp-fallback" className="hidden">
+                          <svg width="115" height="115" viewBox="0 0 150 150" className="transform rotate-6">
+                            <circle cx="75" cy="75" r="72" fill="none" stroke="#2563EB" strokeWidth="2.5" strokeOpacity="0.85" />
+                            <circle cx="75" cy="75" r="66" fill="none" stroke="#2563EB" strokeWidth="1" strokeOpacity="0.85" />
+                            <path id="curve-top-stamp" d="M 20,75 A 55,55 0 1,1 130,75" fill="none" stroke="none" />
+                            <text fill="#2563EB" fillOpacity="0.85" fontSize="10" fontFamily="sans-serif" fontWeight="bold">
+                              <textPath href="#curve-top-stamp" startOffset="50%" textAnchor="middle">
+                                ሜና ኢንክ ትሬዲንግ ኃ/የተ/የግ/ማ
+                              </textPath>
+                            </text>
+                            <path id="curve-bottom-stamp" d="M 130,75 A 55,55 0 0,1 20,75" fill="none" stroke="none" />
+                            <text fill="#2563EB" fillOpacity="0.85" fontSize="10" fontFamily="sans-serif" fontWeight="bold">
+                              <textPath href="#curve-bottom-stamp" startOffset="50%" textAnchor="middle">
+                                * MENA INC TRADING PLC *
+                              </textPath>
+                            </text>
+                            <circle cx="75" cy="75" r="34" fill="none" stroke="#2563EB" strokeWidth="1.5" strokeDasharray="4,3" strokeOpacity="0.8" />
+                            <g transform="translate(75, 75) scale(0.6)">
+                              <path d="M 0 -22 C -18 -38 -38 -18 -22 0 C -38 18 -18 38 0 22 C 18 38 38 18 22 0 C 38 -18 18 -38 0 -22 Z" fill="none" stroke="#2563EB" strokeWidth="2.5" strokeOpacity="0.8" />
+                              <circle cx="0" cy="0" r="6.5" fill="#2563EB" fillOpacity="0.8" />
+                            </g>
+                            <text x="75" y="60" fill="#2563EB" fillOpacity="0.85" fontSize="7" fontStyle="italic" fontWeight="bold" textAnchor="middle" fontFamily="monospace">
+                              0942125568
+                            </text>
+                            <text x="75" y="98" fill="#2563EB" fillOpacity="0.85" fontSize="7" fontStyle="italic" fontWeight="bold" textAnchor="middle" fontFamily="monospace">
+                              0924148847
+                            </text>
+                          </svg>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                 </div>
