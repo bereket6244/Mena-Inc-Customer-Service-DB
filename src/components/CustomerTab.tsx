@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import { 
   Plus, 
   Search, 
@@ -76,7 +78,7 @@ export default function CustomerTab({
   const [standaloneClientPhone, setStandaloneClientPhone] = useState('+251 900 000 000');
   const [applyDigitalStamp, setApplyDigitalStamp] = useState(true);
 
-  // Dynamic html2pdf direct file exporter
+  // Dynamic html2canvas + jsPDF direct file exporter
   const exportDirectPDF = async () => {
     const element = document.getElementById('proforma-print-container');
     if (!element) {
@@ -92,50 +94,47 @@ export default function CustomerTab({
     }
 
     try {
-      let html2pdf = (window as any).html2pdf;
-      if (!html2pdf) {
-        // Wait up to 2 seconds for preloaded defer script to parse
-        for (let i = 0; i < 20; i++) {
-          if ((window as any).html2pdf) {
-            html2pdf = (window as any).html2pdf;
-            break;
-          }
-          await new Promise(r => setTimeout(r, 100));
-        }
-      }
-
-      if (!html2pdf) {
-        // Safe dynamically loaded fallback without subresource integrity (causes block inside sandboxed previews)
-        const script = document.createElement('script');
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-        document.head.appendChild(script);
-        await new Promise((resolve, reject) => {
-          script.onload = resolve;
-          script.onerror = () => reject(new Error('Failed to load PDF engine.'));
-        });
-        html2pdf = (window as any).html2pdf;
-      }
-
-      if (!html2pdf) {
-        throw new Error('PDF Engine could not be loaded.');
-      }
-
       const clientNameFilename = isStandaloneProformaMode 
         ? standaloneClientName 
         : (proformaItemsToRender[0] as any)?.clientName || 'Draft';
-      
-      const opt = {
-        margin:       [12, 12, 12, 12],
-        filename:     `Mena_Inc_Proforma_${clientNameFilename.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
-        image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { scale: 2, useCORS: true, logging: false },
-        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-      };
 
-      await html2pdf().from(element).set(opt).save();
+      // Capture the element to high-res canvas (scale 2)
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const pdf = new jsPDF({
+        orientation: 'p',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const imgWidth = 210; // A4 width
+      const pageHeight = 297; // A4 height
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      // Add cover/first page
+      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
+      heightLeft -= pageHeight;
+
+      // Add extra pages if needed
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
+        heightLeft -= pageHeight;
+      }
+
+      pdf.save(`Mena_Inc_Proforma_${clientNameFilename.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
     } catch (err) {
       console.error('PDF export crashed:', err);
-      alert('Error exporting PDF. Please use the Print button as alternate.');
+      alert('Error exporting PDF locally.');
     } finally {
       if (btn) {
         btn.innerHTML = originalText;

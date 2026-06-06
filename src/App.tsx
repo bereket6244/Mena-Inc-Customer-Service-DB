@@ -17,7 +17,10 @@ import {
   X,
   User,
   Sun,
-  Moon
+  Moon,
+  Download,
+  Smartphone,
+  Share2
 } from 'lucide-react';
 import { 
   Customer, 
@@ -70,6 +73,7 @@ export default function App() {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [liveDbLinked, setLiveDbLinked] = useState(false);
+  const [showDbConfigModal, setShowDbConfigModal] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [showResetOverlay, setShowResetOverlay] = useState<false | 'demo' | 'stocks'>(false);
 
@@ -77,6 +81,18 @@ export default function App() {
   const [employees, setEmployees] = useState<EmployeeUser[]>([]);
   const [currentUser, setCurrentUser] = useState<EmployeeUser | null>(null);
   const [showStaffModal, setShowStaffModal] = useState(false);
+  const [tempDbUrl, setTempDbUrl] = useState(() => localStorage.getItem('VITE_SUPABASE_URL') || '');
+  const [tempDbKey, setTempDbKey] = useState(() => localStorage.getItem('VITE_SUPABASE_ANON_KEY') || '');
+  const [installGuideTab, setInstallGuideTab] = useState<'ios' | 'android'>('android');
+
+  useEffect(() => {
+    const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (isIOSDevice) {
+      setInstallGuideTab('ios');
+    } else {
+      setInstallGuideTab('android');
+    }
+  }, []);
 
   // Internet connectivity monitoring (Telegram-style indicator)
   const [isOnline, setIsOnline] = useState(true);
@@ -91,6 +107,38 @@ export default function App() {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // Progressive Web App (PWA) installation parameters & handlers
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallGuideModal, setShowInstallGuideModal] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+    };
+  }, []);
+
+  // Native/custom download helper function for Android & iOS PWA triggering
+  const triggerPwaInstall = async () => {
+    if (deferredPrompt) {
+      try {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log(`User installation outcome: ${outcome}`);
+        setDeferredPrompt(null);
+      } catch (err) {
+        console.error("Installation prompting failed:", err);
+        setShowInstallGuideModal(true);
+      }
+    } else {
+      setShowInstallGuideModal(true);
+    }
+  };
 
   // 30-second deletion undo states & timer integration
   const [deletedHistory, setDeletedHistory] = useState<{
@@ -233,7 +281,8 @@ export default function App() {
 
         const { getFirebaseDb } = await import('./lib/firebase');
         const { isFirebaseConfigured } = await getFirebaseDb();
-        setLiveDbLinked(isFirebaseConfigured);
+        const { isSupabaseConfigured } = await import('./lib/supabase');
+        setLiveDbLinked(isFirebaseConfigured || isSupabaseConfigured);
 
         const { 
           fetchAllPaperStocks, 
@@ -799,14 +848,19 @@ export default function App() {
               )}
 
               {/* Live Relational Database Node Connection */}
-              <div className={`flex items-center gap-1.5 text-[10px] font-mono px-2.5 py-1 rounded-none border ${
-                liveDbLinked 
-                  ? 'bg-[#112918] text-[#71b536] border-[#71b536]/20' 
-                  : 'bg-[#1E1215] text-[#ee317b] border-[#ee317b]/10'
-              }`}>
+              <button
+                type="button"
+                onClick={() => setShowDbConfigModal(true)}
+                className={`flex items-center gap-1.5 text-[10px] font-mono px-2.5 py-1.5 rounded-none border cursor-pointer active:scale-95 transition-all outline-none ${
+                  liveDbLinked 
+                    ? 'bg-[#112918] text-[#71b536] border-[#71b536]/30 hover:border-[#71b536]' 
+                    : 'bg-[#1E1215] text-[#ee317b] border-[#ee317b]/20 hover:border-[#ee317b]'
+                }`}
+                title="Configure Live Supabase Cloud Database Adapter"
+              >
                 <Wifi className={`w-3.5 h-3.5 ${liveDbLinked ? 'animate-pulse' : ''}`} />
                 <span className="hidden lg:inline">{liveDbLinked ? 'CLOUDSYNC ACTIVE' : 'LOCAL LEASE ENGINE'}</span>
-              </div>
+              </button>
 
               <div className="hidden sm:flex items-center gap-1.5 text-xs text-gray-400 font-mono bg-[#181818] border border-[#262626] px-2.5 py-1 rounded-none">
                 <Clock className="w-3.5 h-3.5 text-[#ee317b] animate-pulse" />
@@ -821,6 +875,17 @@ export default function App() {
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Seed Defaults</span>
+              </button>
+
+              {/* PWA Direct Mobile App Installation Trigger */}
+              <button
+                type="button"
+                onClick={triggerPwaInstall}
+                className="text-xs text-[#71b536] hover:bg-[#71b536] hover:text-black border border-[#71b536]/30 font-medium px-3 py-1.5 rounded-none flex items-center gap-1.5 transition-all cursor-pointer"
+                title="Download this ledger as an Android or iOS Mobile App"
+              >
+                <Download className="w-3.5 h-3.5 text-[#71b536]" />
+                <span>Download App</span>
               </button>
 
               <button
@@ -1207,6 +1272,207 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* 🔮 SUPABASE DATABASE CONFIGURATION MODAL */}
+      <AnimatePresence>
+        {showDbConfigModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm select-none">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#121212] border border-[#262626] w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col relative"
+            >
+              <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-[#ee317b] to-[#71b536]" />
+              
+              {/* Modal header */}
+              <div className="px-6 py-4 border-b border-[#262626] flex justify-between items-center bg-[#181818]/60">
+                <div className="flex items-center gap-2 font-mono">
+                  <Database className="w-4 h-4 text-[#71b536]" />
+                  <h3 className="text-sm font-bold tracking-wider uppercase text-white">Supabase Cloud Database Settings</h3>
+                </div>
+                <button
+                  onClick={() => setShowDbConfigModal(false)}
+                  className="text-gray-400 hover:text-white cursor-pointer transition-colors"
+                >
+                  <X className="w-5 h-5 flex-shrink-0" />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 overflow-y-auto max-h-[75vh] space-y-6 text-gray-200">
+                
+                <div className="space-y-4">
+                  <p className="text-xs text-gray-400 leading-relaxed font-sans">
+                    You can connect this applet with your <strong>live relational Supabase Postgres ledger</strong>. 
+                    Once configured, all customer, stock inventory, bank logs, and purchase ledgers will instantly store and synchronize in real-time.
+                  </p>
+                  
+                  <div className="bg-[#1E1215] border border-[#ee317b]/15 p-3 font-mono text-[11px] text-gray-400 space-y-1">
+                    <span className="text-[#ee317b] font-bold uppercase block">Deployment Checklist:</span>
+                    <div>• Add these variables to your <strong>Netlify</strong> deployment parameters or your local <strong>.env</strong> file.</div>
+                    <div>• Run the SQL schema script provided below in your Supabase SQL Editor to initialize tables instantly!</div>
+                  </div>
+
+                  <div className="space-y-4 font-mono text-xs text-left">
+                    <div>
+                      <label className="block text-[10px] uppercase text-gray-400 mb-1 font-bold">Supabase Project URL</label>
+                      <input
+                        type="text"
+                        placeholder="https://your-project-id.supabase.co"
+                        value={tempDbUrl}
+                        onChange={(e) => setTempDbUrl(e.target.value)}
+                        className="w-full bg-[#181818] border border-[#262626] text-xs px-3 py-2 focus:border-[#71b536] outline-none text-white font-sans"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] uppercase text-gray-400 mb-1 font-bold">Supabase Anon Public API Key</label>
+                      <input
+                        type="password"
+                        placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                        value={tempDbKey}
+                        onChange={(e) => setTempDbKey(e.target.value)}
+                        className="w-full bg-[#181818] border border-[#262626] text-xs px-3 py-2 focus:border-[#71b536] outline-none text-white font-sans tracking-widest"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* DB Config operations */}
+                <div className="flex flex-wrap gap-3 font-mono text-xs pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!tempDbUrl.trim() || !tempDbKey.trim()) {
+                        alert("Please fill in both the URL and Anon Key to make a connection.");
+                        return;
+                      }
+                      localStorage.setItem('VITE_SUPABASE_URL', tempDbUrl.trim());
+                      localStorage.setItem('VITE_SUPABASE_ANON_KEY', tempDbKey.trim());
+                      alert("Supabase integration credentials saved to LocalStorage! Reloading the app to initialize the direct gateway connection...");
+                      window.location.reload();
+                    }}
+                    className="bg-[#71b536] hover:bg-[#5f9c2d] text-black font-bold uppercase py-2 px-4 rounded-none cursor-pointer transition-colors"
+                  >
+                    💾 Save &amp; Connect Gateway
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm("Disconnect cloud adapter? All changes will fallback safely to Offline JSON engine.")) {
+                        localStorage.removeItem('VITE_SUPABASE_URL');
+                        localStorage.removeItem('VITE_SUPABASE_ANON_KEY');
+                        setTempDbUrl('');
+                        setTempDbKey('');
+                        alert("Disconnected! Reloading application...");
+                        window.location.reload();
+                      }
+                    }}
+                    className="bg-[#1e1215] border border-[#ee317b]/30 hover:bg-[#31111E] text-[#ee317b] font-medium uppercase py-2 px-4 rounded-none cursor-pointer transition-colors"
+                  >
+                    🔌 Disconnect / Revert Offline
+                  </button>
+                </div>
+
+                {/* SQL setup schema script */}
+                <div className="border-t border-[#262626] pt-4 font-mono text-left">
+                  <span className="text-[10px] uppercase text-[#71b536] tracking-wider font-bold block mb-2">📋 Supabase Bootstrapping SQL Schema</span>
+                  <div className="text-[10px] text-gray-400 mb-2 font-sans leading-relaxed">
+                    Copy and run this schema code directly inside your <strong>Supabase SQL Editor</strong> to instantly blueprint all relational data matrices:
+                  </div>
+                  <div className="relative bg-[#0a0a0a] border border-[#202020] p-3 text-[10px] text-gray-300 max-h-56 overflow-y-auto selection:bg-[#71b536]/25 rounded-none">
+                    <pre className="whitespace-pre overflow-x-auto text-[9px] text-left leading-normal font-mono text-gray-300">
+{`-- Run this in your Supabase SQL Editor
+
+CREATE TABLE IF NOT EXISTS public.paper_stocks (
+  id text PRIMARY KEY,
+  name text NOT NULL,
+  "initialStock" numeric DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS public.bank_accounts (
+  id text PRIMARY KEY,
+  name text NOT NULL,
+  "accountNumber" text,
+  "initialBalance" numeric DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS public.expense_categories (
+  id text PRIMARY KEY,
+  name text NOT NULL,
+  items jsonb DEFAULT '[]'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS public.purchases (
+  id text PRIMARY KEY,
+  "purchasedBy" text,
+  "itemOrService" text,
+  quantity numeric DEFAULT 0,
+  "unitPrice" numeric DEFAULT 0,
+  "purchaseDate" text,
+  "paymentMethodId" text,
+  "totalPrice" numeric DEFAULT 0,
+  "notesOrDescription" text,
+  "recordedBy" text,
+  "expenseCategory" text,
+  "hasVat" boolean DEFAULT false,
+  "vatAmount" numeric DEFAULT 0,
+  "hasWithholding" boolean DEFAULT false,
+  "withholdingAmount" numeric DEFAULT 0,
+  "baseAmount" numeric DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS public.customers (
+  id text PRIMARY KEY,
+  "clientType" text,
+  "clientName" text,
+  phone text,
+  "acquisitionSource" text,
+  "orderTakenBy" text,
+  "productType" text,
+  quantity numeric DEFAULT 0,
+  "unitPrice" numeric DEFAULT 0,
+  "advancePayment" numeric DEFAULT 0,
+  "paymentMethodId" text,
+  "paperType1" text,
+  amount1 numeric DEFAULT 0,
+  "paperType2" text,
+  amount2 numeric DEFAULT 0,
+  "paperType3" text,
+  amount3 numeric DEFAULT 0,
+  "entrancePaper" text,
+  amount16 numeric DEFAULT 0,
+  "ajabiPaper" text,
+  amount9 numeric DEFAULT 0,
+  "deliveryDate" text,
+  "advancePaymentDate" text,
+  "bankRemainingId" text,
+  "incompletionReason" text,
+  "isVatAdded" boolean DEFAULT false,
+  "baseUnitPrice" numeric DEFAULT 0
+);`}
+                    </pre>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Modal footer */}
+              <div className="px-6 py-4 border-t border-[#262626] bg-[#181818]/60 flex justify-end">
+                <button
+                  onClick={() => setShowDbConfigModal(false)}
+                  className="bg-[#242424] hover:bg-[#323232] text-white text-xs font-mono font-medium px-4 py-1.5 transition-colors cursor-pointer rounded-none"
+                >
+                  Close Settings
+                </button>
+              </div>
+
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* ⚡ BUFFERING NETWORK LOADER banner */}
       <AnimatePresence>
         {isBuffering && (
@@ -1284,6 +1550,184 @@ export default function App() {
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 📱 PWA DOWNLOAD & MOBILE INSTALLATION GUIDE MODAL */}
+      <AnimatePresence>
+        {showInstallGuideModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm select-none">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#121212] border border-[#262626] w-full max-w-lg overflow-hidden shadow-2xl flex flex-col relative font-mono"
+            >
+              <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-[#71b536] to-[#ee317b]" />
+              
+              {/* Modal Header */}
+              <div className="px-6 py-4 border-b border-[#262626] flex justify-between items-center bg-[#181818]/60">
+                <div className="flex items-center gap-2">
+                  <Smartphone className="w-4 h-4 text-[#71b536]" />
+                  <h3 className="text-sm font-bold tracking-wider uppercase text-white">Install Mena CRM WebApp</h3>
+                </div>
+                <button
+                  onClick={() => setShowInstallGuideModal(false)}
+                  className="text-gray-400 hover:text-white cursor-pointer transition-colors"
+                >
+                  <X className="w-5 h-5 flex-shrink-0" />
+                </button>
+              </div>
+
+              {/* Platform Selector Tabs */}
+              <div className="grid grid-cols-2 border-b border-[#262626]">
+                <button
+                  type="button"
+                  onClick={() => setInstallGuideTab('ios')}
+                  className={`py-3 text-xs md:text-sm font-bold uppercase transition-all tracking-wider flex items-center justify-center gap-2 cursor-pointer ${
+                    installGuideTab === 'ios'
+                      ? 'bg-[#181818] text-[#ee317b] border-b-2 border-[#ee317b]'
+                      : 'text-gray-400 hover:text-white hover:bg-[#151515]'
+                  }`}
+                >
+                  <span>🍏 iOS (iPhone / iPad)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInstallGuideTab('android')}
+                  className={`py-3 text-xs md:text-sm font-bold uppercase transition-all tracking-wider flex items-center justify-center gap-2 cursor-pointer ${
+                    installGuideTab === 'android'
+                      ? 'bg-[#181818] text-[#71b536] border-b-2 border-[#71b536]'
+                      : 'text-gray-400 hover:text-white hover:bg-[#151515]'
+                  }`}
+                >
+                  <span>🤖 Android &amp; Chrome OS</span>
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 text-gray-200 text-left space-y-4 max-h-[60vh] overflow-y-auto">
+                
+                {installGuideTab === 'ios' ? (
+                  <div className="space-y-4">
+                    <p className="text-xs text-gray-400 leading-relaxed font-sans">
+                      Safari on iOS does not support fully automated PWA download prompts. Follow these <strong>3 quick taps</strong> to install Mena CRM as a high-performance native-feeling application on your Home Screen:
+                    </p>
+
+                    <ol className="space-y-4 text-xs">
+                      <li className="flex items-start gap-3 bg-[#181818] p-3 border border-[#262626]">
+                        <span className="bg-[#ee317b] text-white w-5 h-5 flex items-center justify-center rounded-none text-[10px] font-bold shrink-0">1</span>
+                        <div className="space-y-1 font-sans">
+                          <p className="font-bold text-gray-200 font-mono text-[11px]">Open the Safari Share Sheet</p>
+                          <p className="text-gray-400 leading-normal text-[11px]">
+                            Tap the <strong>Share button</strong> <span className="inline-flex items-center gap-1 p-1 bg-[#242424] text-white rounded-none font-mono text-[10px]">Share <Share2 className="w-3 h-3 text-[#ee317b]" /></span> standard control at the bottom (on iPhone) or top (on iPad) of Safari.
+                          </p>
+                        </div>
+                      </li>
+
+                      <li className="flex items-start gap-3 bg-[#181818] p-3 border border-[#262626]">
+                        <span className="bg-[#ee317b] text-white w-5 h-5 flex items-center justify-center rounded-none text-[10px] font-bold shrink-0">2</span>
+                        <div className="space-y-1 font-sans">
+                          <p className="font-bold text-gray-200 font-mono text-[11px]">Select &apos;Add to Home Screen&apos;</p>
+                          <p className="text-gray-400 leading-normal text-[11px]">
+                            Scroll down the options list and find the item marked with a plus icon <span className="bg-[#242424] text-white font-mono px-1.5 py-0.5 font-bold text-[10px] border border-[#333]">+ Add to Home Screen</span>.
+                          </p>
+                        </div>
+                      </li>
+
+                      <li className="flex items-start gap-3 bg-[#181818] p-3 border border-[#262626]">
+                        <span className="bg-[#ee317b] text-white w-5 h-5 flex items-center justify-center rounded-none text-[10px] font-bold shrink-0">3</span>
+                        <div className="space-y-1 font-sans">
+                          <p className="font-bold text-gray-200 font-mono text-[11px]">Confirm Setup Name</p>
+                          <p className="text-gray-400 leading-normal text-[11px]">
+                            Check the title (<strong>Mena CRM</strong>) and tap <strong className="text-[#ee317b]">Add</strong> in the top-right corner.
+                          </p>
+                        </div>
+                      </li>
+                    </ol>
+
+                    <div className="bg-[#1E1215] border border-[#ee317b]/15 p-3 text-[10px] text-gray-400 font-mono leading-relaxed">
+                      💡 <strong>WHY INSTALL:</strong> This enables immersive fullscreen operation without Safari URL search bars, loads instantly, and runs with fast gesture response times!
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <p className="text-xs text-gray-400 leading-relaxed font-sans">
+                      For Android and Chromium Desktop, you can instantly install the offline-first Mena Inc. WebApp database into your application drawer.
+                    </p>
+
+                    {deferredPrompt ? (
+                      <div className="bg-[#112918] border border-[#71b536]/30 p-4 space-y-3">
+                        <span className="text-xs font-bold text-[#71b536] uppercase block">🟢 Automatic Setup Ready!</span>
+                        <p className="text-[11px] text-gray-300 font-sans leading-normal">
+                          Your Chromium-based browser has successfully loaded the Progressive App triggers. Let&apos;s finalize setup with a single tap:
+                        </p>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setShowInstallGuideModal(false);
+                            await triggerPwaInstall();
+                          }}
+                          className="w-full bg-[#71b536] hover:bg-[#5f9c2d] text-black text-xs font-bold uppercase py-2.5 transition-colors cursor-pointer text-center rounded-none"
+                        >
+                          📲 Trigger Instant App Download
+                        </button>
+                      </div>
+                    ) : (
+                      <ol className="space-y-4 text-xs font-sans">
+                        <li className="flex items-start gap-3 bg-[#181818] p-3 border border-[#262626]">
+                          <span className="bg-[#71b536] text-black w-5 h-5 flex items-center justify-center rounded-none font-mono text-[10px] font-bold shrink-0">1</span>
+                          <div className="space-y-1">
+                            <p className="font-bold text-gray-200 font-mono text-[11px]">Open Browser Settings</p>
+                            <p className="text-gray-400 leading-normal text-[11px]">
+                              Tap your browser menu (the <strong>three vertical dots icon</strong> at the top right of Chrome/Edge).
+                            </p>
+                          </div>
+                        </li>
+
+                        <li className="flex items-start gap-3 bg-[#181818] p-3 border border-[#262626]">
+                          <span className="bg-[#71b536] text-black w-5 h-5 flex items-center justify-center rounded-none font-mono text-[10px] font-bold shrink-0">2</span>
+                          <div className="space-y-1">
+                            <p className="font-bold text-gray-200 font-mono text-[11px]">Tap &apos;Install app&apos; / &apos;Add to Home screen&apos;</p>
+                            <p className="text-gray-400 leading-normal text-[11px]">
+                              Locate and tap either <strong className="text-white">Install App</strong>, <strong className="text-white">Add Page to...</strong> or <strong className="text-white">Add to Home Screen</strong>.
+                            </p>
+                          </div>
+                        </li>
+
+                        <li className="flex items-start gap-3 bg-[#181818] p-3 border border-[#262626]">
+                          <span className="bg-[#71b536] text-black w-5 h-5 flex items-center justify-center rounded-none font-mono text-[10px] font-bold shrink-0">3</span>
+                          <div className="space-y-1">
+                            <p className="font-bold text-gray-200 font-mono text-[11px]">Launch From Launcher Tray</p>
+                            <p className="text-gray-400 leading-normal text-[11px]">
+                              The application launches from your offline desktop or application list as a standalone database client, bypassing generic web frames!
+                            </p>
+                          </div>
+                        </li>
+                      </ol>
+                    )}
+
+                    <div className="bg-[#1C201A] border border-[#71b536]/15 p-3 text-[10px] text-gray-400 font-mono leading-relaxed">
+                      💡 <strong>WHY INSTALL:</strong> Installs offline ledger features, delivers seamless database response matrices, and acts as an independent application.
+                    </div>
+                  </div>
+                )}
+
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-6 py-4 border-t border-[#262626] bg-[#181818]/60 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowInstallGuideModal(false)}
+                  className="bg-[#242424] hover:bg-[#323232] text-white text-xs font-mono font-medium px-4 py-1.5 transition-colors cursor-pointer rounded-none"
+                >
+                  Dismiss Guide
+                </button>
+              </div>
+
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 

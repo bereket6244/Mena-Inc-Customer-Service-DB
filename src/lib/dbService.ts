@@ -1,8 +1,36 @@
 import { getFirebaseDb, OperationType, handleFirestoreError } from './firebase';
+import { supabase, isSupabaseConfigured } from './supabase';
 import { Customer, PaperStock, BankAccount, Purchase, ExpenseCategory } from '../types';
 
-// Fetch Paper Stocks with local fallback verification
+// ============================================
+// 1. PAPER STOCKS OPERATIONS
+// ============================================
+
 export async function fetchAllPaperStocks(localFallback: PaperStock[]): Promise<PaperStock[]> {
+  // Try Supabase first
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('paper_stocks')
+        .select('*');
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        // Seed Supabase if empty
+        const { error: seedError } = await supabase
+          .from('paper_stocks')
+          .insert(localFallback);
+        if (seedError) console.error("Supabase paper_stocks seeding error: ", seedError);
+        return localFallback;
+      }
+      return data as PaperStock[];
+    } catch (err) {
+      console.error("Supabase fetchAllPaperStocks failed, falling back:", err);
+    }
+  }
+
+  // Try Firebase second
   const { db, isFirebaseConfigured } = await getFirebaseDb();
   if (!isFirebaseConfigured) {
     return localFallback;
@@ -13,7 +41,6 @@ export async function fetchAllPaperStocks(localFallback: PaperStock[]): Promise<
     const snapshot = await getDocsFromServer(collection(db, 'paperStocks'));
     
     if (snapshot.empty) {
-      // Seed Firestore with initial stockroom values if empty
       const seededStocks: PaperStock[] = [];
       for (const stock of localFallback) {
         await setDoc(doc(db, 'paperStocks', stock.id), stock);
@@ -33,8 +60,83 @@ export async function fetchAllPaperStocks(localFallback: PaperStock[]): Promise<
   }
 }
 
-// Fetch Customers with local fallback verification
+export async function savePaperStockDoc(stock: PaperStock): Promise<void> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase
+        .from('paper_stocks')
+        .upsert(stock);
+      if (error) throw error;
+      return;
+    } catch (err) {
+      console.error("Supabase savePaperStockDoc failed:", err);
+    }
+  }
+
+  const { db, isFirebaseConfigured } = await getFirebaseDb();
+  if (!isFirebaseConfigured) return;
+  
+  try {
+    const { doc, setDoc } = await import('firebase/firestore');
+    await setDoc(doc(db, 'paperStocks', stock.id), stock);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `paperStocks/${stock.id}`);
+  }
+}
+
+export async function deletePaperStockDoc(id: string): Promise<void> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase
+        .from('paper_stocks')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+      return;
+    } catch (err) {
+      console.error("Supabase deletePaperStockDoc failed:", err);
+    }
+  }
+
+  const { db, isFirebaseConfigured } = await getFirebaseDb();
+  if (!isFirebaseConfigured) return;
+  
+  try {
+    const { doc, deleteDoc } = await import('firebase/firestore');
+    await deleteDoc(doc(db, 'paperStocks', id));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `paperStocks/${id}`);
+  }
+}
+
+
+// ============================================
+// 2. CUSTOMERS OPERATIONS
+// ============================================
+
 export async function fetchAllCustomers(localFallback: Customer[]): Promise<Customer[]> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('*');
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        // Seed Supabase if empty
+        const { error: seedError } = await supabase
+          .from('customers')
+          .insert(localFallback);
+        if (seedError) console.error("Supabase customers seeding error: ", seedError);
+        return localFallback;
+      }
+      return data as Customer[];
+    } catch (err) {
+      console.error("Supabase fetchAllCustomers failed, falling back:", err);
+    }
+  }
+
   const { db, isFirebaseConfigured } = await getFirebaseDb();
   if (!isFirebaseConfigured) {
     return localFallback;
@@ -45,7 +147,6 @@ export async function fetchAllCustomers(localFallback: Customer[]): Promise<Cust
     const snapshot = await getDocsFromServer(collection(db, 'customers'));
     
     if (snapshot.empty) {
-      // Seed Firestore with initial customer ledger values if empty
       const seededCustomers: Customer[] = [];
       for (const customer of localFallback) {
         await setDoc(doc(db, 'customers', customer.id), customer);
@@ -65,21 +166,19 @@ export async function fetchAllCustomers(localFallback: Customer[]): Promise<Cust
   }
 }
 
-// Save or Update a single Paper Stock in Firestore
-export async function savePaperStockDoc(stock: PaperStock): Promise<void> {
-  const { db, isFirebaseConfigured } = await getFirebaseDb();
-  if (!isFirebaseConfigured) return;
-  
-  try {
-    const { doc, setDoc } = await import('firebase/firestore');
-    await setDoc(doc(db, 'paperStocks', stock.id), stock);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, `paperStocks/${stock.id}`);
-  }
-}
-
-// Save or Update a single Customer Order in Firestore
 export async function saveCustomerDoc(customer: Customer): Promise<void> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase
+        .from('customers')
+        .upsert(customer);
+      if (error) throw error;
+      return;
+    } catch (err) {
+      console.error("Supabase saveCustomerDoc failed:", err);
+    }
+  }
+
   const { db, isFirebaseConfigured } = await getFirebaseDb();
   if (!isFirebaseConfigured) return;
   
@@ -91,8 +190,20 @@ export async function saveCustomerDoc(customer: Customer): Promise<void> {
   }
 }
 
-// Delete a Customer Order from Firestore
 export async function deleteCustomerDoc(id: string): Promise<void> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase
+        .from('customers')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+      return;
+    } catch (err) {
+      console.error("Supabase deleteCustomerDoc failed:", err);
+    }
+  }
+
   const { db, isFirebaseConfigured } = await getFirebaseDb();
   if (!isFirebaseConfigured) return;
   
@@ -104,8 +215,34 @@ export async function deleteCustomerDoc(id: string): Promise<void> {
   }
 }
 
-// Fetch Bank Accounts with local fallback verification
+
+// ============================================
+// 3. BANK ACCOUNTS OPERATIONS
+// ============================================
+
 export async function fetchAllBankAccounts(localFallback: BankAccount[]): Promise<BankAccount[]> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('bank_accounts')
+        .select('*');
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        // Seed Supabase if empty
+        const { error: seedError } = await supabase
+          .from('bank_accounts')
+          .insert(localFallback);
+        if (seedError) console.error("Supabase bank_accounts seeding error: ", seedError);
+        return localFallback;
+      }
+      return data as BankAccount[];
+    } catch (err) {
+      console.error("Supabase fetchAllBankAccounts failed, falling back:", err);
+    }
+  }
+
   const { db, isFirebaseConfigured } = await getFirebaseDb();
   if (!isFirebaseConfigured) {
     return localFallback;
@@ -116,7 +253,6 @@ export async function fetchAllBankAccounts(localFallback: BankAccount[]): Promis
     const snapshot = await getDocsFromServer(collection(db, 'bankAccounts'));
     
     if (snapshot.empty) {
-      // Seed Firestore with initial bank accounts if empty
       const seededAccounts: BankAccount[] = [];
       for (const acct of localFallback) {
         await setDoc(doc(db, 'bankAccounts', acct.id), acct);
@@ -136,8 +272,19 @@ export async function fetchAllBankAccounts(localFallback: BankAccount[]): Promis
   }
 }
 
-// Save or Update a single Bank Account in Firestore
 export async function saveBankAccountDoc(account: BankAccount): Promise<void> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase
+        .from('bank_accounts')
+        .upsert(account);
+      if (error) throw error;
+      return;
+    } catch (err) {
+      console.error("Supabase saveBankAccountDoc failed:", err);
+    }
+  }
+
   const { db, isFirebaseConfigured } = await getFirebaseDb();
   if (!isFirebaseConfigured) return;
   
@@ -149,8 +296,20 @@ export async function saveBankAccountDoc(account: BankAccount): Promise<void> {
   }
 }
 
-// Delete a Bank Account from Firestore
 export async function deleteBankAccountDoc(id: string): Promise<void> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase
+        .from('bank_accounts')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+      return;
+    } catch (err) {
+      console.error("Supabase deleteBankAccountDoc failed:", err);
+    }
+  }
+
   const { db, isFirebaseConfigured } = await getFirebaseDb();
   if (!isFirebaseConfigured) return;
   
@@ -162,21 +321,34 @@ export async function deleteBankAccountDoc(id: string): Promise<void> {
   }
 }
 
-// Delete a Paper Stock from Firestore
-export async function deletePaperStockDoc(id: string): Promise<void> {
-  const { db, isFirebaseConfigured } = await getFirebaseDb();
-  if (!isFirebaseConfigured) return;
-  
-  try {
-    const { doc, deleteDoc } = await import('firebase/firestore');
-    await deleteDoc(doc(db, 'paperStocks', id));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, `paperStocks/${id}`);
-  }
-}
 
-// Fetch Purchases with local fallback verification
+// ============================================
+// 4. PURCHASES OPERATIONS
+// ============================================
+
 export async function fetchAllPurchases(localFallback: Purchase[]): Promise<Purchase[]> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('purchases')
+        .select('*');
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        // Seed Supabase if empty
+        const { error: seedError } = await supabase
+          .from('purchases')
+          .insert(localFallback);
+        if (seedError) console.error("Supabase purchases seeding error: ", seedError);
+        return localFallback;
+      }
+      return data as Purchase[];
+    } catch (err) {
+      console.error("Supabase fetchAllPurchases failed, falling back:", err);
+    }
+  }
+
   const { db, isFirebaseConfigured } = await getFirebaseDb();
   if (!isFirebaseConfigured) {
     return localFallback;
@@ -206,8 +378,19 @@ export async function fetchAllPurchases(localFallback: Purchase[]): Promise<Purc
   }
 }
 
-// Save or Update a single Purchase in Firestore
 export async function savePurchaseDoc(purchase: Purchase): Promise<void> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase
+        .from('purchases')
+        .upsert(purchase);
+      if (error) throw error;
+      return;
+    } catch (err) {
+      console.error("Supabase savePurchaseDoc failed:", err);
+    }
+  }
+
   const { db, isFirebaseConfigured } = await getFirebaseDb();
   if (!isFirebaseConfigured) return;
   
@@ -219,8 +402,20 @@ export async function savePurchaseDoc(purchase: Purchase): Promise<void> {
   }
 }
 
-// Delete a Purchase from Firestore
 export async function deletePurchaseDoc(id: string): Promise<void> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase
+        .from('purchases')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+      return;
+    } catch (err) {
+      console.error("Supabase deletePurchaseDoc failed:", err);
+    }
+  }
+
   const { db, isFirebaseConfigured } = await getFirebaseDb();
   if (!isFirebaseConfigured) return;
   
@@ -232,8 +427,34 @@ export async function deletePurchaseDoc(id: string): Promise<void> {
   }
 }
 
-// Fetch Expense Categories with local fallback verification
+
+// ============================================
+// 5. EXPENSE CATEGORIES OPERATIONS
+// ============================================
+
 export async function fetchAllExpenseCategories(localFallback: ExpenseCategory[]): Promise<ExpenseCategory[]> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('expense_categories')
+        .select('*');
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        // Seed Supabase if empty
+        const { error: seedError } = await supabase
+          .from('expense_categories')
+          .insert(localFallback);
+        if (seedError) console.error("Supabase expense_categories seeding error: ", seedError);
+        return localFallback;
+      }
+      return data as ExpenseCategory[];
+    } catch (err) {
+      console.error("Supabase fetchAllExpenseCategories failed, falling back:", err);
+    }
+  }
+
   const { db, isFirebaseConfigured } = await getFirebaseDb();
   if (!isFirebaseConfigured) {
     return localFallback;
@@ -263,8 +484,19 @@ export async function fetchAllExpenseCategories(localFallback: ExpenseCategory[]
   }
 }
 
-// Save or Update a single Expense Category in Firestore
 export async function saveExpenseCategoryDoc(cat: ExpenseCategory): Promise<void> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase
+        .from('expense_categories')
+        .upsert(cat);
+      if (error) throw error;
+      return;
+    } catch (err) {
+      console.error("Supabase saveExpenseCategoryDoc failed:", err);
+    }
+  }
+
   const { db, isFirebaseConfigured } = await getFirebaseDb();
   if (!isFirebaseConfigured) return;
   
@@ -275,4 +507,3 @@ export async function saveExpenseCategoryDoc(cat: ExpenseCategory): Promise<void
     handleFirestoreError(error, OperationType.WRITE, `expenseCategories/${cat.id}`);
   }
 }
-
